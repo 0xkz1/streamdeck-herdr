@@ -1,0 +1,9 @@
+[
+  {"keys": "ctrl+alt+cmd+1", "cmd": "/usr/bin/python3 $HOME/streamdeck-herdr/hue.py preset focus"},
+  {"keys": "ctrl+alt+cmd+2", "cmd": "/usr/bin/python3 $HOME/streamdeck-herdr/hue.py preset relax"},
+  {"keys": "ctrl+alt+cmd+3", "cmd": "/usr/bin/python3 $HOME/streamdeck-herdr/hue.py preset warm"},
+  {"keys": "ctrl+alt+cmd+4", "cmd": "/usr/bin/python3 $HOME/streamdeck-herdr/hue.py preset cool"},
+  {"keys": "ctrl+alt+cmd+5", "cmd": "/usr/bin/python3 $HOME/streamdeck-herdr/hue.py preset read"},
+  {"keys": "ctrl+alt+cmd+6", "cmd": "/usr/bin/python3 $HOME/streamdeck-herdr/hue.py preset night"},
+  {"keys": "ctrl+alt+cmd+7", "cmd": "/usr/bin/python3 $HOME/streamdeck-herdr/hue.py preset energize"}
+]

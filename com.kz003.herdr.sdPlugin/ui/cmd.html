@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<script src="https://sdpi-components.dev/releases/v4/sdpi-components.js"></script>
+</head>
+<body>
+<sdpi-item label="機能">
+  <sdpi-select setting="cmd" placeholder="選んでください">
+    <optgroup label="選択中のエージェントへ送る">
+      <option value="q-continue">⏩ 続けて</option>
+      <option value="q-diff">🔍 diff を見せて要約</option>
+      <option value="q-test">🧪 テストを実行</option>
+      <option value="q-commit">💾 コミット(push しない)</option>
+      <option value="q-esc">⏹ 中断(Esc)</option>
+      <option value="clip">📋 クリップボードを送る</option>
+      <option value="shot">📸 画面の範囲を撮って送る</option>
+    </optgroup>
+    <optgroup label="音声・入力">
+      <option value="voice">🎤 音声入力(押している間だけ録音)</option>
+      <option value="enter">⏎ 送信(Enter)</option>
+      <option value="hue-voice">💡 声で Hue(コンピュータールーム)</option>
+    </optgroup>
+    <optgroup label="ペイン操作(Ctrl+B 不要)">
+      <option value="split-right">◧ 右に分割</option>
+      <option value="split-down">⬓ 下に分割</option>
+      <option value="zoom">🔍 ズーム(切替)</option>
+      <option value="focus-left">◀ 左のペインへ</option>
+      <option value="focus-right">▶ 右のペインへ</option>
+      <option value="focus-up">🔼 上のペインへ</option>
+      <option value="focus-down">🔽 下のペインへ</option>
+    </optgroup>
+    <optgroup label="Hermes cron を今すぐ実行">
+      <option value="cron-morning-brief">☀️ 朝ブリーフ</option>
+      <option value="cron-taifunome-daily">台風の目 daily</option>
+      <option value="cron-taifunome-weekly">台風の目 weekly</option>
+      <option value="cron-taifunome-ig">台風の目 IG クリッピング</option>
+      <option value="cron-taifunome-saved">台風の目 保存クリッピング</option>
+    </optgroup>
+    <optgroup label="Hue(ワンタッチ。中身は presets.json で変えられる)">
+      <option value="hue-ambient">💡 エージェント状態ライト(ON/OFF)</option>
+      <option value="hue-p-focus">🎯 集中</option>
+      <option value="hue-p-relax">😌 リラックス</option>
+      <option value="hue-p-warm">🔥 暖かく</option>
+      <option value="hue-p-cool">❄️ 涼しく</option>
+      <option value="hue-p-read">📖 読書</option>
+      <option value="hue-p-night">🌙 夜</option>
+      <option value="hue-p-energize">⚡ 元気</option>
+    </optgroup>
+    <optgroup label="引き継ぎ(組・向き自動・長押しで実行)">
+      <option value="pair-claude-codex">🔀 Claude ⇄ Codex</option>
+      <option value="pair-claude-hermes">🔀 Claude ⇄ Hermes</option>
+      <option value="pair-claude-opencode">🔀 Claude ⇄ OpenCode</option>
+    </optgroup>
+    <optgroup label="引き継ぎ(一方向・押すとすぐ実行)">
+      <option value="handoff-claude">🔀 → Claude</option>
+      <option value="handoff-codex">🔀 → Codex</option>
+      <option value="handoff-hermes">🔀 → Hermes</option>
+      <option value="handoff-opencode">🔀 → OpenCode</option>
+    </optgroup>
+    <optgroup label="作業中の音">
+      <option value="think-toggle">🎲 考え中の音(コロコロ)ON/OFF</option>
+    </optgroup>
+    <optgroup label="作業中の時計(旧案・初期はOFF)">
+      <option value="tick-toggle">🕰 作業中の時計 ON/OFF</option>
+      <option value="tick-switch">🔁 時計を替える(柱時計→置き時計→台所)</option>
+    </optgroup>
+    <optgroup label="会議・使用量">
+      <option value="scribe">🎙 会議の字幕(開始/停止)</option>
+      <option value="usage">📊 Claude 使用量(週/5時間)</option>
+    </optgroup>
+    <optgroup label="基盤">
+      <option value="infra">🏥 基盤の状態(押すと修復)</option>
+    </optgroup>
+  </sdpi-select>
+</sdpi-item>
+</body>
+</html>

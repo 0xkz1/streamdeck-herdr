@@ -1,0 +1,169 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2240 1000" width="2240" height="1000" role="img" aria-label="Agents on Ubuntu report their state to herdr. The Mac Stream Deck plugin polls that one JSON snapshot over ssh and fans it out into three channels: light (Hue bulbs) for state, sound for events, and spoken summaries for detail. A separate notifier sends a Telegram message only when a blocked or finished agent is left unattended.">
+  <defs>
+    <marker id="a-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#6b7280"/></marker>
+    <marker id="a-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#c98a00"/></marker>
+    <marker id="a-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#0f8b8d"/></marker>
+    <marker id="a-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#7c4dbd"/></marker>
+    <marker id="a-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#c2410c"/></marker>
+  </defs>
+
+  <rect width="2240" height="1000" fill="#fbfaf7"/>
+
+  <g font-family="Helvetica, Arial, sans-serif" fill="#1f2328">
+    <!-- title + legend -->
+    <text x="40" y="44" font-size="26" font-weight="700">streamdeck-herdr: one state feed, three channels</text>
+    <g font-size="14">
+      <line x1="40" y1="68" x2="76" y2="68" stroke="#c98a00" stroke-width="4"/><text x="86" y="73">light = state</text>
+      <line x1="210" y1="68" x2="246" y2="68" stroke="#0f8b8d" stroke-width="4"/><text x="256" y="73">sound = event</text>
+      <line x1="390" y1="68" x2="426" y2="68" stroke="#7c4dbd" stroke-width="4"/><text x="436" y="73">voice = detail</text>
+      <line x1="580" y1="68" x2="616" y2="68" stroke="#c2410c" stroke-width="4"/><text x="626" y="73">away from desk</text>
+      <line x1="770" y1="68" x2="806" y2="68" stroke="#6b7280" stroke-width="2"/><text x="816" y="73">plumbing</text>
+    </g>
+
+    <!-- panels -->
+    <rect x="40" y="90" width="800" height="880" rx="14" fill="#f1efe9" stroke="#c9c5ba" stroke-width="1.5"/>
+    <text x="64" y="120" font-size="18" font-weight="700">Ubuntu: home base, agents run here</text>
+    <rect x="1080" y="90" width="680" height="750" rx="14" fill="#f1efe9" stroke="#c9c5ba" stroke-width="1.5"/>
+    <text x="1104" y="120" font-size="18" font-weight="700">Mac: control room</text>
+    <text x="1880" y="240" font-size="15" fill="#6b7280">what you perceive</text>
+
+    <!-- Ubuntu left column -->
+    <rect x="70" y="140" width="330" height="100" rx="10" fill="#fff" stroke="#6b7280" stroke-width="1.5"/>
+    <text x="90" y="172" font-size="17" font-weight="700">LiteLLM gateway :4001</text>
+    <text x="90" y="200" font-size="14" fill="#4b5563">summaries, plain-speech Hue intent</text>
+
+    <rect x="70" y="330" width="330" height="140" rx="10" fill="#fff" stroke="#7c4dbd" stroke-width="2.5"/>
+    <text x="90" y="362" font-size="17" font-weight="700">narrate.py / priorities.py</text>
+    <text x="90" y="390" font-size="14" fill="#4b5563">pane screen or all sessions</text>
+    <text x="90" y="412" font-size="14" fill="#4b5563">to short text, then tts.py</text>
+    <text x="90" y="434" font-size="14" fill="#4b5563">to a spoken WAV</text>
+
+    <rect x="70" y="580" width="330" height="90" rx="10" fill="#fff" stroke="#c2410c" stroke-width="2.5"/>
+    <text x="90" y="612" font-size="17" font-weight="700">agent_notifier.py</text>
+    <text x="90" y="640" font-size="14" fill="#4b5563">blocked 90 s, or long job done 60 s</text>
+
+    <!-- Ubuntu right column -->
+    <rect x="480" y="140" width="320" height="150" rx="10" fill="#fff" stroke="#6b7280" stroke-width="1.5"/>
+    <text x="500" y="166" font-size="17" font-weight="700">4 agents</text>
+    <g font-size="14" text-anchor="middle">
+      <rect x="495" y="180" width="140" height="40" rx="8" fill="#f1efe9" stroke="#9ca3af"/><text x="565" y="205">Claude Code</text>
+      <rect x="645" y="180" width="140" height="40" rx="8" fill="#f1efe9" stroke="#9ca3af"/><text x="715" y="205">Codex</text>
+      <rect x="495" y="232" width="140" height="40" rx="8" fill="#f1efe9" stroke="#9ca3af"/><text x="565" y="257">OpenCode</text>
+      <rect x="645" y="232" width="140" height="40" rx="8" fill="#f1efe9" stroke="#9ca3af"/><text x="715" y="257">Hermes</text>
+    </g>
+
+    <rect x="480" y="380" width="320" height="140" rx="10" fill="#fff" stroke="#1f2328" stroke-width="2.5"/>
+    <text x="500" y="412" font-size="19" font-weight="700">herdr</text>
+    <text x="500" y="442" font-size="14" fill="#4b5563">api snapshot returns JSON for everything:</text>
+    <text x="500" y="466" font-size="14" font-weight="700">working · blocked · done · idle</text>
+    <text x="500" y="494" font-size="14" fill="#4b5563">reported by the agents, not guessed</text>
+
+    <rect x="480" y="580" width="320" height="90" rx="10" fill="#fff" stroke="#6b7280" stroke-width="1.5"/>
+    <text x="500" y="612" font-size="17" font-weight="700">Whisper large-v3 (GPU)</text>
+    <text x="500" y="640" font-size="14" fill="#4b5563">:18866, speech to text</text>
+
+    <rect x="480" y="715" width="320" height="90" rx="10" fill="#fff" stroke="#6b7280" stroke-width="1.5"/>
+    <text x="500" y="747" font-size="17" font-weight="700">meeting_refine.py</text>
+    <text x="500" y="775" font-size="14" fill="#4b5563">re-transcribe + summary</text>
+
+    <!-- Mac -->
+    <rect x="1110" y="190" width="230" height="330" rx="10" fill="#fff" stroke="#1f2328" stroke-width="2.5"/>
+    <text x="1130" y="224" font-size="19" font-weight="700">Stream Deck</text>
+    <text x="1130" y="248" font-size="19" font-weight="700">plugin</text>
+    <text x="1130" y="282" font-size="14" fill="#4b5563">slots, urgent, brief,</text>
+    <text x="1130" y="304" font-size="14" fill="#4b5563">cmd, auto</text>
+    <text x="1130" y="344" font-size="14" fill="#4b5563">reads the state feed and</text>
+    <text x="1130" y="366" font-size="14" fill="#4b5563">decides what to show,</text>
+    <text x="1130" y="388" font-size="14" fill="#4b5563">play and say</text>
+
+    <rect x="1110" y="585" width="230" height="80" rx="10" fill="#fff" stroke="#6b7280" stroke-width="1.5"/>
+    <text x="1130" y="617" font-size="17" font-weight="700">HerdrMic :18867</text>
+    <text x="1130" y="643" font-size="14" fill="#4b5563">push-to-talk recorder</text>
+
+    <rect x="1110" y="720" width="230" height="80" rx="10" fill="#fff" stroke="#6b7280" stroke-width="1.5"/>
+    <text x="1130" y="752" font-size="17" font-weight="700">HerdrScribe :18868</text>
+    <text x="1130" y="778" font-size="14" fill="#4b5563">meeting captions</text>
+
+    <rect x="1500" y="280" width="230" height="80" rx="10" fill="#fff" stroke="#c98a00" stroke-width="2.5"/>
+    <text x="1520" y="312" font-size="17" font-weight="700">Hue bridge</text>
+    <text x="1520" y="338" font-size="14" fill="#4b5563">color at most 1/s per bulb</text>
+
+    <rect x="1500" y="400" width="230" height="140" rx="10" fill="#fff" stroke="#1f2328" stroke-width="1.5"/>
+    <text x="1520" y="432" font-size="17" font-weight="700">afplay</text>
+    <text x="1520" y="460" font-size="14" fill="#4b5563">local cue WAVs, and the</text>
+    <text x="1520" y="482" font-size="14" fill="#4b5563">spoken WAV that arrived</text>
+    <text x="1520" y="504" font-size="14" fill="#4b5563">over ssh</text>
+
+    <!-- outputs -->
+    <rect x="1880" y="270" width="300" height="100" rx="10" fill="#fff8e6" stroke="#c98a00" stroke-width="2.5"/>
+    <text x="1900" y="302" font-size="17" font-weight="700">LIGHT = state</text>
+    <text x="1900" y="328" font-size="14" fill="#4b5563">6 bulbs + Play High</text>
+    <text x="1900" y="350" font-size="14" fill="#4b5563">red pulse · yellow breath · green 15 s</text>
+
+    <rect x="1880" y="400" width="300" height="70" rx="10" fill="#e6f6f6" stroke="#0f8b8d" stroke-width="2.5"/>
+    <text x="1900" y="432" font-size="17" font-weight="700">SOUND = event</text>
+    <text x="1900" y="456" font-size="14" fill="#4b5563">ask · done · big, quiet grains</text>
+
+    <rect x="1880" y="490" width="300" height="70" rx="10" fill="#f1eafa" stroke="#7c4dbd" stroke-width="2.5"/>
+    <text x="1900" y="522" font-size="17" font-weight="700">VOICE = detail</text>
+    <text x="1900" y="546" font-size="14" fill="#4b5563">the screen, summarized aloud</text>
+
+    <rect x="1880" y="850" width="300" height="80" rx="10" fill="#fdeee6" stroke="#c2410c" stroke-width="2.5"/>
+    <text x="1900" y="882" font-size="17" font-weight="700">TELEGRAM = away</text>
+    <text x="1900" y="908" font-size="14" fill="#4b5563">only if left unattended</text>
+
+    <!-- arrows: Ubuntu -->
+    <g fill="none" stroke-width="2">
+      <line x1="560" y1="290" x2="560" y2="378" stroke="#6b7280" marker-end="url(#a-gray)"/>
+      <line x1="480" y1="445" x2="402" y2="445" stroke="#6b7280" marker-end="url(#a-gray)"/>
+      <line x1="235" y1="330" x2="235" y2="242" stroke="#6b7280" marker-end="url(#a-gray)"/>
+      <polyline points="480,500 235,500 235,578" stroke="#6b7280" marker-end="url(#a-gray)"/>
+      <line x1="640" y1="715" x2="640" y2="672" stroke="#6b7280" marker-end="url(#a-gray)"/>
+      <polyline points="235,670 235,890 1878,890" stroke="#c2410c" stroke-width="2.5" marker-end="url(#a-orange)"/>
+    </g>
+    <g font-size="13" fill="#4b5563">
+      <text x="572" y="326">hook: agents report state</text>
+      <text x="440" y="436" text-anchor="middle">reads pane</text>
+      <text x="245" y="292">summarize</text>
+      <text x="360" y="492" text-anchor="middle">reads state</text>
+      <text x="652" y="698">re-transcribe</text>
+    </g>
+    <text x="1330" y="880" font-size="14" fill="#c2410c" text-anchor="middle">hermes send: Telegram when a blocked or finished agent sits unattended</text>
+
+    <!-- arrows: Ubuntu to Mac -->
+    <g fill="none" stroke-width="2">
+      <line x1="402" y1="350" x2="1108" y2="350" stroke="#7c4dbd" stroke-width="2.5" marker-end="url(#a-purple)"/>
+      <line x1="802" y1="430" x2="1108" y2="430" stroke="#6b7280" marker-end="url(#a-gray)"/>
+      <line x1="1108" y1="475" x2="802" y2="475" stroke="#6b7280" marker-end="url(#a-gray)"/>
+      <polyline points="1110,505 960,505 960,625 802,625" stroke="#6b7280" marker-end="url(#a-gray)"/>
+      <line x1="1108" y1="745" x2="802" y2="745" stroke="#6b7280" marker-end="url(#a-gray)"/>
+      <line x1="802" y1="775" x2="1108" y2="775" stroke="#6b7280" marker-end="url(#a-gray)"/>
+    </g>
+    <g font-size="13" fill="#4b5563" text-anchor="middle">
+      <text x="955" y="337" fill="#7c4dbd">spoken summary: WAV streamed over ssh</text>
+      <text x="955" y="422">state JSON, polled over ssh</text>
+      <text x="955" y="467">prompt · focus · split, over ssh</text>
+      <text x="880" y="617">POST wav, get text</text>
+      <text x="955" y="737">m4a over scp</text>
+      <text x="955" y="793">_final.md back</text>
+    </g>
+
+    <!-- arrows: inside Mac and to outputs -->
+    <g fill="none" stroke-width="2.5">
+      <line x1="1225" y1="520" x2="1225" y2="583" stroke="#6b7280" stroke-width="2" marker-end="url(#a-gray)"/>
+      <line x1="1340" y1="320" x2="1498" y2="320" stroke="#c98a00" marker-end="url(#a-amber)"/>
+      <line x1="1340" y1="430" x2="1498" y2="430" stroke="#0f8b8d" marker-end="url(#a-teal)"/>
+      <line x1="1340" y1="500" x2="1498" y2="500" stroke="#7c4dbd" marker-end="url(#a-purple)"/>
+      <line x1="1730" y1="320" x2="1878" y2="320" stroke="#c98a00" marker-end="url(#a-amber)"/>
+      <line x1="1730" y1="435" x2="1878" y2="435" stroke="#0f8b8d" marker-end="url(#a-teal)"/>
+      <line x1="1730" y1="525" x2="1878" y2="525" stroke="#7c4dbd" marker-end="url(#a-purple)"/>
+    </g>
+    <g font-size="13" fill="#4b5563">
+      <text x="1235" y="557">hold key: /start /stop</text>
+      <text x="1420" y="312" text-anchor="middle" fill="#c98a00">color</text>
+      <text x="1420" y="422" text-anchor="middle" fill="#0f8b8d">cue</text>
+      <text x="1420" y="492" text-anchor="middle" fill="#7c4dbd">voice</text>
+      <text x="1804" y="312" text-anchor="middle" fill="#c98a00">Hue API</text>
+    </g>
+  </g>
+</svg>

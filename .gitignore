@@ -1,0 +1,12 @@
+node_modules/
+com.kz003.herdr.sdPlugin/bin/
+sounds/**/*.wav
+!sounds/raw/LICENSES.md
+meetings/
+handoffs/
+logs/
+shots/
+last-*.txt
+.env
+*.env
+config.json

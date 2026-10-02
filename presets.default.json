@@ -1,0 +1,9 @@
+{
+  "focus":    { "label": "集中",       "emoji": "🎯", "keywords": ["集中", "勉強", "作業"],            "scene": "集中する" },
+  "relax":    { "label": "リラックス", "emoji": "😌", "keywords": ["リラックス", "くつろ", "休憩"],    "scene": "くつろぐ" },
+  "warm":     { "label": "暖かく",     "emoji": "🔥", "keywords": ["暖か", "あたたか", "温かく", "電球色"], "action": { "on": true, "ct": 420 } },
+  "cool":     { "label": "涼しく",     "emoji": "❄️", "keywords": ["涼し", "寒色", "昼光", "白く"],     "action": { "on": true, "ct": 220 } },
+  "read":     { "label": "読書",       "emoji": "📖", "keywords": ["読書"],                           "scene": "読書をする" },
+  "night":    { "label": "夜",         "emoji": "🌙", "keywords": ["夜", "おやすみ", "寝る前"],         "scene": "夜間" },
+  "energize": { "label": "元気",       "emoji": "⚡", "keywords": ["元気", "やる気", "朝"],            "scene": "やる気を出す" }
+}

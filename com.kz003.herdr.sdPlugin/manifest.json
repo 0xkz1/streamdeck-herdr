@@ -1,0 +1,97 @@
+{
+  "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
+  "Name": "Herdr",
+  "Version": "0.1.0.0",
+  "Author": "kz003",
+  "Description": "herdr のスペース/タブの状態を表示し、押して切り替える",
+  "UUID": "com.kz003.herdr",
+  "Icon": "imgs/plugin-icon",
+  "CodePath": "bin/plugin.js",
+  "SDKVersion": 3,
+  "Software": {
+    "MinimumVersion": "7.1"
+  },
+  "OS": [
+    {
+      "Platform": "mac",
+      "MinimumVersion": "13"
+    }
+  ],
+  "Nodejs": {
+    "Version": "20",
+    "Debug": "enabled"
+  },
+  "Actions": [
+    {
+      "UUID": "com.kz003.herdr.slot",
+      "Name": "Herdr Slot",
+      "Icon": "imgs/actions/slot",
+      "Tooltip": "上段=スペース / 下段=タブ。位置で役割が決まる",
+      "Controllers": [
+        "Keypad"
+      ],
+      "States": [
+        {
+          "Image": "imgs/actions/slot-key"
+        }
+      ]
+    },
+    {
+      "UUID": "com.kz003.herdr.brief",
+      "Name": "Herdr Brief",
+      "Icon": "imgs/actions/slot",
+      "Tooltip": "押すと、全セッションを俯瞰した優先順を読み上げる。もう一度押すと止める",
+      "Controllers": [
+        "Keypad"
+      ],
+      "States": [
+        {
+          "Image": "imgs/actions/slot-key"
+        }
+      ]
+    },
+    {
+      "UUID": "com.kz003.herdr.auto",
+      "Name": "Herdr Auto",
+      "Icon": "imgs/actions/slot",
+      "Tooltip": "確認待ち/完了の自動読み上げを ON/OFF する",
+      "Controllers": [
+        "Keypad"
+      ],
+      "States": [
+        {
+          "Image": "imgs/actions/slot-key"
+        }
+      ]
+    },
+    {
+      "UUID": "com.kz003.herdr.urgent",
+      "Name": "Herdr Urgent",
+      "Icon": "imgs/actions/slot",
+      "Tooltip": "一番優先度の高い(確認待ち>完了待ち)タブへ一発で飛ぶ",
+      "Controllers": [
+        "Keypad"
+      ],
+      "States": [
+        {
+          "Image": "imgs/actions/slot-key"
+        }
+      ]
+    },
+    {
+      "UUID": "com.kz003.herdr.cmd",
+      "Name": "Herdr Cmd",
+      "Icon": "imgs/actions/slot",
+      "Tooltip": "定型プロンプト・cron実行・基盤確認などを選んで割り当てる",
+      "Controllers": [
+        "Keypad"
+      ],
+      "PropertyInspectorPath": "ui/cmd.html",
+      "States": [
+        {
+          "Image": "imgs/actions/slot-key"
+        }
+      ]
+    }
+  ]
+}
