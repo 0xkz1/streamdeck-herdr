@@ -1,0 +1,12 @@
+{
+  "router":        ["hermes"],
+  "strategist":    ["claude", "agy"],
+  "researcher":    ["claude", "agy"],
+  "investigator":  ["claude", "agy"],
+  "builder":       ["codex", "claude", "opencode"],
+  "writer":        ["claude", "hermes"],
+  "visualizer":    ["hermes", "claude"],
+  "review-editor": ["claude", "codex"],
+  "publisher":     ["claude", "codex"],
+  "archivist":     ["hermes", "claude"]
+}

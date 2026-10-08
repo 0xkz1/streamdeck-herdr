@@ -1,0 +1,12 @@
+{
+  "priorities": [
+    { "match": ["my-main-project"], "priority": 100 },
+    { "match": ["side-project"], "priority": 50 }
+  ],
+  "max_parallel": 3,
+  "hermes_bin": "hermes",
+  "hermes_profile": "default",
+  "judgment_timeout_seconds": 90,
+  "jev": { "mode": "off", "model": "", "key_file": "", "timeout_seconds": 15 },
+  "max_run_seconds": 1100
+}

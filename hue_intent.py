@@ -2,8 +2,8 @@
 """話し言葉を Hue の操作(JSON)に変える。stdin: {"text","scenes":[名前...],"state":{...}}  stdout: JSON 1つ。
 出力: {"type":"scene","name":"集中する"} | {"type":"state","on":bool,"bri":1-254,"bri_inc":-254..254,"ct":153-500,"hue":0-65535,"sat":0-254} | {"type":"none"}
 """
-import json
 import os
+import json
 import sys
 import urllib.request
 

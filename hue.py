@@ -8,6 +8,7 @@ import json
 import os
 import ssl
 import sys
+import time
 import urllib.request
 
 CFG = os.path.expanduser("~/.config/herdr-hue")
@@ -20,7 +21,34 @@ def req(method, path, body=None):
     key = json.load(open(f"{CFG}/bridge.json"))[0]["success"]["username"]
     data = json.dumps(body).encode() if body is not None else None
     r = urllib.request.Request(f"https://{IP}/api/{key}{path}", data=data, method=method)
-    return json.load(urllib.request.urlopen(r, timeout=6, context=CTX))
+    changing = method == "PUT" and path == f"/groups/{GROUP}/action"
+    marker = f"{CFG}/ambient-user-change"
+    if changing:
+        with open(marker, "w") as f:
+            f.write(str(int(time.time() * 1000) + 10000))
+    try:
+        if changing and "scene" not in (body or {}):
+            # 色だけの操作も、呼吸で暗くなった瞬間ではなく普段の明るさから始める。
+            saved_file = f"{CFG}/ambient-saved.json"
+            if os.path.exists(saved_file):
+                with open(saved_file) as f:
+                    data = json.load(f)
+                for lid, state in data.get("saved", data).items():
+                    with open(marker, "w") as f:
+                        f.write(str(int(time.time() * 1000) + 10000))
+                    restore = {"on": state["on"], "transitiontime": 0}
+                    if state["on"]:
+                        restore["bri"] = state["bri"]
+                        keys = ("ct",) if state["colormode"] == "ct" else ("xy",) if state["colormode"] == "xy" else ("hue", "sat")
+                        restore.update({k: state[k] for k in keys})
+                    req("PUT", f"/lights/{lid}/state", restore)
+            with open(marker, "w") as f:
+                f.write(str(int(time.time() * 1000) + 10000))
+        return json.load(urllib.request.urlopen(r, timeout=6, context=CTX))
+    finally:
+        if changing:
+            with open(marker, "w") as f:
+                f.write(str(int(time.time() * 1000) + 1500))
 
 
 def apply(p):

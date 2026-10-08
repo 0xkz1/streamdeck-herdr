@@ -1,13 +1,15 @@
 import streamDeck, { action, DidReceiveSettingsEvent, KeyDownEvent, KeyUpEvent, SingletonAction, WillAppearEvent, WillDisappearEvent, type KeyAction as SdKeyAction } from "@elgato/streamdeck";
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { execFile, type ChildProcess } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
-import { fetchUsage, fetchCron, fetchInfra, type CronInfo, type Infra, fetchBriefAudio, fetchNarrationAudio, fetchLastBriefText, fetchSnapshot, focusTab, focusWorkspace, type Snapshot, type Status } from "./herdr";
+import { fetchPatrol, type PatrolInfo, fetchLimit, type LimitInfo, fetchActivity, fetchUsage, fetchGpu, fetchCpu, fetchSys, fetchCron, fetchInfra, type CronInfo, type Infra, fetchBriefAudio, fetchNarrationAudio, fetchLastBriefText, fetchSnapshot, focusTab, focusWorkspace, type Snapshot, type Status } from "./herdr";
 import { renderEmpty, renderKey, tile, toDataUri } from "./render";
-import { ambientTick } from "./ambient";
-import { tick as tickClock } from "./sound";
-import { thinking } from "./thinking";
+import { ambientLimitAlert, ambientSuspend, ambientTick, setGpuTemp } from "./ambient";
+import { isMuted, spawnSound, stopSounds, tick as tickClock, toggleMute } from "./sound";
+import { startPowerWatch } from "./power";
+import { musicPause, musicTick } from "./music";
+import { setActivities, stopThinking, thinking } from "./thinking";
 import { COMMANDS, pairDirection, pairView, type Ctx } from "./commands";
 import { focusedAgent, startHandoff } from "./herdr";
 
@@ -26,11 +28,75 @@ const urgentKeys = new Map<string, KeyAction>(); // Herdr Urgent
 const lastImage = new Map<string, string>();
 const cmdKeys = new Map<string, { action: KeyAction; cmd?: string; flip?: boolean; lastPane?: string; fired?: boolean; timer?: ReturnType<typeof setTimeout> }>(); // Herdr Cmd
 const busyCmd = new Set<string>();
+let patrolState: PatrolInfo | undefined;
+let limitState: LimitInfo | undefined;
+let limitPolling = false;
+const limitSeen = new Set<string>();
+let limitBaselined = false;
+let patrolPolling = false;
 let cronState: Record<string, CronInfo> = {};
 let infraState: Infra | undefined;
 let usageState: Awaited<ReturnType<typeof fetchUsage>> | undefined;
+let gpuState: Awaited<ReturnType<typeof fetchGpu>> | undefined;
+let cpuState: Awaited<ReturnType<typeof fetchCpu>> | undefined;
+let sysState: Awaited<ReturnType<typeof fetchSys>> | undefined;
 let scribeState: "running" | "idle" | "off" = "off";
-const ctx = (): Ctx => ({ snap, cron: cronState, infra: infraState, usage: usageState, scribe: scribeState });
+const ctx = (): Ctx => ({ patrol: patrolState, limit: limitState, snap, cron: cronState, infra: infraState, usage: usageState, gpu: gpuState, cpu: cpuState, sys: sysState, scribe: scribeState });
+
+async function pollLimit() {
+    if (limitPolling) return;
+    limitPolling = true;
+    try {
+        limitState = await fetchLimit();
+        // 新しく見つかった上限停止を、音と光で知らせる。起動直後の1回目は、すでにあるものを覚えるだけで鳴らさない
+        const fresh = limitState.events.filter((e) => !limitSeen.has(e.id));
+        limitState.events.forEach((e) => limitSeen.add(e.id));
+        if (limitBaselined && fresh.length) { chime("limit"); ambientLimitAlert(); }
+        limitBaselined = true;
+    }
+    catch { /* 取れなければ前回の表示のまま */ }
+    finally { limitPolling = false; }
+}
+
+async function pollPatrol() {
+    if (patrolPolling) return;
+    patrolPolling = true;
+    try { patrolState = await fetchPatrol(); }
+    catch { patrolState = { state: "offline", counts: {}, processed: 0, total: 0 }; }
+    finally { patrolPolling = false; }
+    paint();
+}
+
+async function pollGpu() {
+	try {
+		gpuState = await fetchGpu();
+		setGpuTemp(gpuState.temp);
+	} catch (e) {
+		gpuState = undefined; // 取れないときは古い温度を出さない(「確認中」表示)
+		streamDeck.logger.warn(`gpu poll failed: ${e}`);
+	}
+	paint();
+}
+
+async function pollCpu() {
+	try {
+		cpuState = await fetchCpu();
+	} catch (e) {
+		cpuState = undefined;
+		streamDeck.logger.warn(`cpu poll failed: ${e}`);
+	}
+	paint();
+}
+
+async function pollSys() {
+	try {
+		sysState = await fetchSys();
+	} catch (e) {
+		sysState = undefined;
+		streamDeck.logger.warn(`sys poll failed: ${e}`);
+	}
+	paint();
+}
 
 // 使用率は 5 分ごと(取得に約 6 秒かかるので頻繁には取らない)
 async function pollUsage() {
@@ -43,6 +109,18 @@ async function pollUsage() {
 }
 
 // HerdrScribe の状態(ローカル HTTP なので軽い)。アプリが動いていなければ "off"。起こさない
+// 作業中のエージェントが何をしているか(読む/書く/実行/検索…)。作業中の間だけ2.5秒ごと。音の素材を変えるのに使う
+let activityBusy = false;
+async function pollActivity() {
+	if (activityBusy || !snap.tabs.some((t) => t.agent && t.status === "working")) return setActivities([]);
+	activityBusy = true;
+	try {
+		setActivities(Object.values(await fetchActivity()));
+	} catch { /* 取れなければ、従来のランダムのまま */ } finally {
+		activityBusy = false;
+	}
+}
+
 async function pollScribe() {
 	try {
 		scribeState = (await (await fetch("http://127.0.0.1:18868/status", { signal: AbortSignal.timeout(1500) })).text()) as "running" | "idle";
@@ -139,9 +217,10 @@ async function poll() {
 		snap = await fetchSnapshot();
 		detect(snap);
 		void ambientTick(snap);
-		// 作業中の時計: いずれかのエージェントが作業中で、自動読み上げが ON、会議の録音中でないとき
+		// 作業中の時計: いずれかのエージェントが作業中で、自動読み上げが ON、消音中・会議の録音中でないとき
 		const working = snap.tabs.filter((t) => t.agent && t.status === "working").length;
-		const quiet = !autoOn || scribeState === "running"; // 自動読み上げ OFF または会議の録音中は鳴らさない
+		void musicTick(scribeState === "running");
+		const quiet = !autoOn || isMuted() || scribeState === "running"; // 自動読み上げ OFF・消音中・会議の録音中は鳴らさない
 		tickClock(!quiet && working > 0);
 		thinking(!quiet && working > 0, working);
 	} catch (e) {
@@ -276,6 +355,7 @@ class CmdAction extends SingletonAction<{ cmd?: string }> {
 
 	override async onKeyDown(ev: KeyDownEvent<{ cmd?: string }>) {
 		const id = ev.action.id;
+		if (cmdKeys.get(id)?.cmd === "mute-toggle") return toggleAllSound();
 		const c = cmdKeys.get(id)?.cmd ? COMMANDS[cmdKeys.get(id)!.cmd!] : undefined;
 		if (!c || busyCmd.has(id)) return;
 		const k = cmdKeys.get(id)!;
@@ -296,6 +376,7 @@ class CmdAction extends SingletonAction<{ cmd?: string }> {
 					await ev.action.showAlert();
 				} finally {
 					busyCmd.delete(id);
+			if (cmdKeys.get(id)?.cmd === "patrol-now") void pollPatrol();
 					paint();
 				}
 			}, 700);
@@ -321,10 +402,15 @@ class CmdAction extends SingletonAction<{ cmd?: string }> {
 			await ev.action.showAlert();
 		} finally {
 			busyCmd.delete(id);
+			if (cmdKeys.get(id)?.cmd === "patrol-now") void pollPatrol();
 			void pollAux();
 			void poll();
 			void pollScribe();
+			if (cmdKeys.get(id)?.cmd === "limit-handoff") void pollLimit();
 			if (cmdKeys.get(id)?.cmd === "usage") void pollUsage();
+			if (cmdKeys.get(id)?.cmd === "gpu") void pollGpu();
+			if (cmdKeys.get(id)?.cmd === "cpu") void pollCpu();
+			if (["alerts", "mem", "disk", "plimit"].includes(cmdKeys.get(id)?.cmd ?? "")) void pollSys();
 		}
 	}
 }
@@ -347,16 +433,19 @@ function showText(text: string) {
 let speaking: ChildProcess | undefined;
 let briefing = false;
 let seq = 0;
+let muteEpoch = 0;
 
 function play(wav: Buffer): Promise<void> {
+	if (isMuted()) return Promise.resolve();
 	const file = `${tmpdir()}/herdr-voice-${seq++ % 4}.wav`;
 	writeFileSync(file, wav);
 	return new Promise((done) => {
-		speaking = spawn("/usr/bin/afplay", [file]);
-		speaking.on("close", () => {
-			speaking = undefined;
-			done();
-		});
+		const child = spawnSound("/usr/bin/afplay", [file]);
+		if (!child) return done();
+		speaking = child;
+		const finish = () => { if (speaking === child) speaking = undefined; done(); };
+		child.once("close", finish);
+		child.once("error", finish);
 	});
 }
 
@@ -371,20 +460,31 @@ const prev = new Map<string, { status: Status; since: number }>();
 const queue: { paneId: string; kind: "blocked" | "done"; where: string }[] = [];
 let draining = false;
 
+function toggleAllSound() {
+	muteEpoch++;
+	if (toggleMute()) {
+		queue.length = 0;
+		stopThinking();
+		void musicPause().catch((e) => streamDeck.logger.warn(`music pause failed: ${e}`));
+	}
+	paint();
+}
+
 // ---- 通知音: 出来事の大きさに合わせる(普通の完了=done、確認待ち=ask、長い作業の完了=big) ----
 const SOUND_DIR = `${process.env.HOME}/streamdeck-herdr/sounds`;
 const BIG_WORK_MS = 20 * 60_000; // これ以上働いた後の完了は「大きな達成」
 const lastChime = new Map<string, number>();
 const lastPick = new Map<string, string>();
-function chime(kind: "ask" | "done" | "big") {
-	if (scribeState === "running") return; // 会議の録音に混ざらないよう、録音中は鳴らさない
+function chime(kind: "ask" | "done" | "big" | "limit") {
+	if (isMuted() || scribeState === "running") return; // 消音中または会議の録音中は鳴らさない
 	const now = Date.now();
 	if (now - (lastChime.get(kind) ?? 0) < 20_000) return; // 同じ音は20秒に1回まで
 	lastChime.set(kind, now);
 	// バンク(sounds/<kind>/*.wav)からランダムに1つ。直前と同じものは避ける。無ければ従来の1ファイル
-	let file = `${SOUND_DIR}/${kind}.wav`;
+	const bank = kind === "limit" ? "ask" : kind; // 上限の知らせは「ask」の音(赤い光で確認待ち=紫と見分ける)
+	let file = `${SOUND_DIR}/${bank}.wav`;
 	try {
-		const dir = `${SOUND_DIR}/${kind}`;
+		const dir = `${SOUND_DIR}/${bank}`;
 		const all = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".wav")) : [];
 		const pool = all.length > 1 ? all.filter((f) => f !== lastPick.get(kind)) : all;
 		if (pool.length) {
@@ -393,7 +493,7 @@ function chime(kind: "ask" | "done" | "big") {
 			file = `${dir}/${f}`;
 		}
 	} catch { /* 従来の音で鳴らす */ }
-	spawn("/usr/bin/afplay", ["-v", "0.6", file]).on("error", () => {});
+	spawnSound("/usr/bin/afplay", ["-v", "0.6", file]);
 }
 
 function detect(next: Snapshot) {
@@ -401,11 +501,11 @@ function detect(next: Snapshot) {
 	for (const t of next.tabs) {
 		// 起動後に現れた新しいタブは「状態なし」からの変化として扱う(最初から確認待ちでも読む)
 		const p = prev.get(t.id) ?? (baselined ? { status: "none" as Status, since: now } : undefined);
-		if (baselined && autoOn && p && p.status !== t.status && t.agent) {
+		if (baselined && autoOn && !isMuted() && p && p.status !== t.status && t.agent) {
 			if (t.status === "blocked") chime("ask");
 			else if (t.status === "done" && p.status === "working" && now - p.since >= AUTO_DONE_MIN_MS) chime(now - p.since >= BIG_WORK_MS ? "big" : "done");
 		}
-		if (baselined && autoOn && p && p.status !== t.status && t.paneId && t.agent) {
+		if (baselined && autoOn && !isMuted() && p && p.status !== t.status && t.paneId && t.agent) {
 			const ws = next.workspaces.find((w) => w.id === t.workspaceId)?.label ?? "";
 			const where = `${ws}の${AGENT_JP[t.agent] ?? t.agent}`;
 			if (t.status === "blocked") enqueue({ paneId: t.paneId, kind: "blocked", where });
@@ -429,9 +529,12 @@ async function drain() {
 	try {
 		while (queue.length) {
 			while (speaking || briefing) await new Promise((r) => setTimeout(r, 1000));
+			if (!queue.length) break;
 			const job = queue.shift()!;
+			const epoch = muteEpoch;
 			try {
-				await play(await fetchNarrationAudio(job.paneId, job.kind, job.where));
+				const wav = await fetchNarrationAudio(job.paneId, job.kind, job.where);
+				if (epoch === muteEpoch) await play(wav);
 			} catch (e) {
 				streamDeck.logger.warn(`narration failed: ${e}`);
 			}
@@ -468,6 +571,7 @@ class Brief extends SingletonAction {
 	}
 
 	override async onKeyDown(ev: KeyDownEvent) {
+		if (isMuted()) return;
 		if (speaking) {
 			speaking.kill();
 			queue.length = 0;
@@ -477,7 +581,9 @@ class Brief extends SingletonAction {
 		briefing = true;
 		try {
 			await ev.action.setImage(briefImage("🤔", "集計中"));
+			const epoch = muteEpoch;
 			const wav = await fetchBriefAudio();
+			if (epoch !== muteEpoch) return;
 			fetchLastBriefText().then(showText).catch((e) => streamDeck.logger.warn(`show text failed: ${e}`));
 			await ev.action.setImage(briefImage("🔊", "再生中"));
 			await play(wav);
@@ -497,12 +603,35 @@ streamDeck.actions.registerAction(new Urgent());
 streamDeck.actions.registerAction(new CmdAction());
 streamDeck.actions.registerAction(new Auto());
 streamDeck.connect();
+startPowerWatch(async (sleeping) => {
+	muteEpoch++;
+	queue.length = 0;
+	stopThinking();
+	if (sleeping) {
+		stopSounds();
+		await musicPause().catch((e) => streamDeck.logger.warn(`music pause failed: ${e}`));
+	}
+	else { baselined = false; prev.clear(); }
+	await ambientSuspend(sleeping);
+	streamDeck.logger.info(sleeping ? "Mac sleep: sound and Hue paused" : "Mac awake: sound and Hue resumed");
+}, (message) => streamDeck.logger.warn(message));
+setInterval(pollPatrol, 5_000);
+void pollPatrol();
+setInterval(pollLimit, 10_000);
+void pollLimit();
 setInterval(poll, POLL_MS);
 setInterval(pollAux, 30_000);
 void pollAux();
 setInterval(pollUsage, 300_000);
 void pollUsage();
+setInterval(pollGpu, 10_000);
+void pollGpu();
+setInterval(pollCpu, 10_000);
+void pollCpu();
+setInterval(pollSys, 10_000);
+void pollSys();
 setInterval(pollScribe, 3_000);
+setInterval(pollActivity, 2_500);
 void pollScribe();
 setInterval(() => {
 	frame++;

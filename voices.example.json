@@ -1,0 +1,30 @@
+{
+  "_default": {
+    "voice": "Algenib",
+    "style": ""
+  },
+  "_claude": {
+    "voice": "Gacrux",
+    "style": "落ち着いた低めの女声。淡々と、自然なテンポで: "
+  },
+  "router": {
+    "voice": "Schedar",
+    "style": "落ち着いた中低音の男声。淡々と、普通の口調で: "
+  },
+  "builder": {
+    "voice": "Orus",
+    "style": "低めの男声。さらっと報告する素の口調で: "
+  },
+  "writer": {
+    "voice": "Sulafat",
+    "style": "温かく柔らかい女声。穏やかで自然なテンポで: "
+  },
+  "review-editor": {
+    "voice": "Kore",
+    "style": "引き締まった冷静な女声。正確に、はっきりと: "
+  },
+  "archivist": {
+    "voice": "Vindemiatrix",
+    "style": "穏やかで静かな女声。記録を読み上げるように淡々と: "
+  }
+}

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { CONFIG } from "./config";
 import { readFileSync } from "node:fs";
+import { CONFIG } from "./config";
 
 // Mac から Ubuntu の herdr を ssh 経由で叩く。非対話 ssh では PATH に ~/.local/bin が無いのでフルパス。
 const HOST = CONFIG.sshHost;
@@ -120,6 +120,34 @@ export async function fetchCron(): Promise<Record<string, CronInfo>> {
 	return Object.fromEntries(Object.entries(raw).map(([k, v]: any) => [k, { status: v[0], at: v[1], state: v[2] }]));
 }
 
+// GPU の温度・使用率・電力(nvidia-smi。軽いので 10 秒ごと)
+export type Gpu = { temp: number; util: number; power: number };
+export async function fetchGpu(): Promise<Gpu> {
+	const [temp, util, power] = (await ssh(`${DIR_}/gpu.sh`)).trim().split(/\s+/).map(Number);
+	if ([temp, util, power].some(Number.isNaN)) throw new Error("gpu parse");
+	return { temp, util, power };
+}
+
+// CPU の温度(Tctl)と使用率
+export type Cpu = { temp: number; util: number };
+export async function fetchCpu(): Promise<Cpu> {
+	const [temp, util] = (await ssh(`${DIR_}/cpu.sh`)).trim().split(/\s+/).map(Number);
+	if ([temp, util].some(Number.isNaN)) throw new Error("cpu parse");
+	return { temp, util };
+}
+
+// メモリ/VRAM/ディスク/NVMe/電力制限/発火中アラート(sys.py が 1 回で返す)
+export type Sys = {
+	mem: { pct: number; usedG: number; totalG: number };
+	vram: { usedMiB: number; totalMiB: number };
+	plimit: number;
+	disk: { availG: number; pct: number };
+	nvme: number;
+	alerts: { name: string; summary: string }[] | null; // null = Prometheus に届かない
+};
+export const fetchSys = async (): Promise<Sys> => JSON.parse(await ssh(`/usr/bin/python3 ${DIR_}/sys.py`));
+export const togglePowerLimit = () => ssh(`${DIR_}/plimit.sh`, undefined, 15000);
+
 // 基盤サービスの死活
 export type Infra = Record<string, boolean>;
 export async function fetchInfra(): Promise<Infra> {
@@ -149,3 +177,25 @@ export const fetchUsage = async (): Promise<Usage> => JSON.parse(await ssh(`/usr
 // 選択中のエージェントの続きを、別のエージェントに引き継ぐ(Ubuntu 側で非同期に進む。完了まで数分)
 export const startHandoff = (pane: string, kind: string) =>
 	ssh(`nohup /usr/bin/python3 ${DIR_}/handoff.py ${pane} ${kind} > ~/handoffs/last.log 2>&1 < /dev/null & echo started`);
+
+// 作業中の Claude Code が「いま何をしているか」(read/write/run/search/web/agent/think)。画面の文字から判定
+export const fetchActivity = async (): Promise<Record<string, string>> => JSON.parse(await ssh(`/usr/bin/python3 ${DIR_}/activity.py`, undefined, 12000));
+
+export type PatrolInfo = {
+    state: "idle" | "running" | "done" | "interrupted" | "offline";
+    processed: number;
+    total: number;
+    counts: { sent?: number; hold?: number; complete?: number; failed?: number; uncertain?: number };
+};
+// Claude/Codex が使用上限で止まったペイン(limit_watch.py が2分ごとに記録)
+export type LimitEvent = { id: string; agent: string; target: string; label: string; reset: string };
+export type LimitInfo = { pending: number; events: LimitEvent[] };
+export const fetchLimit = async (): Promise<LimitInfo> => JSON.parse(await ssh(`/usr/bin/python3 ${DIR_}/limit_watch.py status`));
+export const startLimitHandoff = (id: string) => {
+	if (!/^[0-9a-f]{8}$/.test(id)) throw new Error(`bad limit id: ${id}`);
+	return ssh(`nohup /usr/bin/python3 ${DIR_}/limit_watch.py go ${id} > ~/handoffs/last.log 2>&1 < /dev/null & echo started`);
+};
+
+export async function fetchPatrol(): Promise<PatrolInfo> {
+    return JSON.parse(await ssh("/usr/bin/python3 ~/atelier/forge/herdr/patrol_trigger.py summary"));
+}

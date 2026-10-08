@@ -54,6 +54,8 @@ def main() -> None:
     )
     with urllib.request.urlopen(req, timeout=30) as r:
         text = json.load(r)["choices"][0]["message"]["content"].strip()
+    if not text:  # 空の要約は読み上げに回さない(場所の名前だけを読んでしまう)
+        sys.exit("narrate: empty summary")
     print(f"{where}。{text}" if where else text)
 
 

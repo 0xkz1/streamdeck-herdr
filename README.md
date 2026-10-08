@@ -23,7 +23,7 @@ Looking at four terminals to see who is waiting for you is exactly the kind of a
 | Agent state | Light (6 bulbs) | Sound | Voice |
 |---|---|---|---|
 | working | yellow, slow breathing | rolling grains (random material and timing) | — |
-| blocked (needs you) | red, fast pulse | `ask` — a two-note question | summarizes the screen aloud |
+| blocked (needs you) | purple, fast pulse | `ask` — a two-note question | summarizes the screen aloud |
 | done (> 30 s of work) | green for 15 s | `done` — a warm pad | same |
 | done (> 20 min of work) | green | `big` — organ | same |
 | neglected (blocked 90 s / long job done 60 s) | — | — | **Telegram message** (for when you are away) |
@@ -46,6 +46,20 @@ Why Herdr: it exposes every agent's state (`working / blocked / done / idle`) as
 - **Mac helpers** (`helper/`, Swift) — `HerdrMic` (push-to-talk) and `HerdrScribe` (two-channel meeting transcription, then re-transcribed on a GPU Whisper with a summary).
 - **Notifier** (`agent_notifier.py`) — neglect detection → Telegram.
 
+## Added since the first version (2026-10-04 → 10-09)
+
+Each item is something I asked for and the AI implemented. Where I haven't confirmed that it works, it says so.
+
+- **Role layer.** `roles.json` maps a role (`builder`, `review-editor`, …) to an ordered list of agents; the first entry is the first choice. `handoff.py <pane> builder` starts that agent in a new tab named after the role, and writes a handoff memo in a fixed schema (from/to role, project, goal, done, decisions, open items, known problems, next step) to `~/handoffs/`. Role names follow my Hermes profile names; the role *definitions* stay owned by Hermes, so the role cards are not published here. The second and later choices are only documented, not tried automatically yet. Each role can have its own voice (`voices.example.json`, re-read on every utterance).
+- **Handoff safety.** A failed start renames the tab `✗role` and stops with an error. The prompt is re-sent up to three times if the memo's file name never appears on screen. It will **not** type into a confirmation screen: on 2026-10-04 an automated handoff typed into Codex's hook-review screen and flipped hook trust settings (restored by hand). See `DESIGN.md`.
+- **Usage-limit detection** (`limit_watch.py`, a systemd timer every 2 minutes). When a Claude or Codex pane stops on a usage-limit message, it is logged, one key lights up, and a press hands the work to the other agent. The stopped agent cannot write its own memo, so the memo is built from its conversation log. Handoff is a **press, not automatic**. Codex's message wording was checked against a real log; **Claude's wording is unconfirmed**. The "new stop" sound and light are not confirmed by ear.
+- **Mute-everything key**, and the system goes quiet when the Mac's screen is off or asleep (a small native helper, `HerdrPower`).
+- **Work sound says what the agent is doing.** `activity.py` reads Claude Code's screen to tell reading, writing, running, searching, web and thinking apart, and each gets different grains. It only works for Claude Code, and falls back to "thinking" when the screen text changes.
+- **Model-tier start chime.** On the first message of a conversation, a short synthesized sound says which tier of model is running: rocket (high), airliner (mid), drone (low); `make_chimes.py`.
+- **GPU heat alert**, top priority: red steady at 75 °C, red fast blink and an alarm at 83 °C.
+- **Small extras:** a usage readout in Herdr's tab bar, two one-key prompts to the selected agent ("what are you doing?", "anything left undone?"), a background-music key using SoundCloud's official widget (set your own URL in `~/.config/herdr-music.json`), and a patrol script (`patrol.py`, preview by default) that can nudge idle sessions.
+- **Also used, not part of this repo:** a few third-party Herdr plugins (tab auto-titling, automations, projects, watcher), and a third-party tool to reach the same Herdr session from a phone. Their setup is deliberately not described here.
+
 ## Who decided what (honest authorship)
 
 Most of the code was written by an AI (Claude, via Claude Code) at my direction. The split:
@@ -57,11 +71,12 @@ Most of the code was written by an AI (Claude, via Claude Code) at my direction.
 ## Security notes
 
 - `HerdrMic` (127.0.0.1:18867) and `HerdrScribe` (127.0.0.1:18868) accept **unauthenticated** HTTP and can **start a recording**. They bind to loopback only, which keeps other machines out but **not other local processes**. If you reuse this, add token authentication.
+- Some pieces **type into live agent panes**: `handoff.py`, the two one-key prompts, and `patrol.py --apply`. Read them before enabling. `patrol.py` can optionally send terminal text to an external judging API (`jev.mode` in `patrol.json`); it is **off** in the shipped config.
 - No secrets are in the repository. API keys are read at runtime from an env file named by `HERDR_ENV_FILE`; signing-keychain password via `HERDR_SIGN_PW`; environment values in `~/.config/herdr-deck/config.json` (see `config.example.json`).
 
 ## Credits & licenses
 
-Code: [MIT](LICENSE) © Kazuki. Clock recordings used in an earlier sound design come from Wikimedia Commons (one is CC BY-SA 4.0, attribution required); see [`sounds/raw/LICENSES.md`](sounds/raw/LICENSES.md). No audio files are included. Every sound the system plays is synthesized from scratch by `make_sounds.py` (`python3 make_sounds.py` writes `sounds/*.wav`, about 110 MB in 6 s; needs numpy and scipy); only the optional, off-by-default clock sound uses the third-party recordings, which are not redistributed.
+Code: [MIT](LICENSE) © Kazuki. Clock recordings used in an earlier sound design come from Wikimedia Commons (one is CC BY-SA 4.0, attribution required); see [`sounds/raw/LICENSES.md`](sounds/raw/LICENSES.md). No audio files are included. The sounds this repo can produce are all synthesized from scratch (`make_sounds.py` writes `sounds/*.wav`, about 110 MB in 6 s; needs numpy and scipy; `make_chimes.py` and `make_more_think_sounds.py` add the start chimes and extra grains). My own setup also uses a few third-party sound recordings (the optional clock, a whispered-voice pair, one game jingle). Those are **not included and not redistributed**, and the scripts that process them are left out.
 
 ## More
 

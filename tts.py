@@ -8,6 +8,7 @@ import base64
 import io
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -34,6 +35,12 @@ def keys() -> list[str]:
     return out
 
 
+def prompt(text: str) -> str:
+    # 指示を台本と同じ文に続けると、3.8 が指示まで読み上げる。メモと台本に分けると読まない(実測: 3.8 で 4/4 → 0/4)
+    style = STYLE.strip().rstrip(":：").strip()
+    return f"### DIRECTOR'S NOTES\nStyle: {style}\n\n#### TRANSCRIPT\n{text}" if style else text
+
+
 def synth(text: str, voice: str) -> bytes:
     last = None
     for model in MODELS:  # preview は廃止されうるので次のモデルへ退避
@@ -46,7 +53,7 @@ def synth(text: str, voice: str) -> bytes:
 
 def synth_with(model: str, text: str, voice: str) -> bytes:
     body = json.dumps({
-        "contents": [{"parts": [{"text": STYLE + text}]}],
+        "contents": [{"parts": [{"text": prompt(text)}]}],
         "generationConfig": {"responseModalities": ["AUDIO"],
                              "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}},
     }).encode()
@@ -69,4 +76,7 @@ def synth_with(model: str, text: str, voice: str) -> bytes:
 
 
 if __name__ == "__main__":
-    sys.stdout.buffer.write(synth(sys.stdin.read(), sys.argv[1] if len(sys.argv) > 1 else DEFAULT_VOICE))
+    text = sys.stdin.read().strip()
+    if len(text) < 2:  # 文が空だと、話し方の指示だけが残って、それを声に出して読んでしまう
+        sys.exit("tts: empty text")
+    sys.stdout.buffer.write(synth(text, sys.argv[1] if len(sys.argv) > 1 else DEFAULT_VOICE))

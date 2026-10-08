@@ -53,7 +53,7 @@ Rule that came out of it: **no rhythmic sounds**. Rhythm in a sound about waitin
 ## 6. Voice
 
 - It speaks **only a summary of the screen**, and only on events (blocked / done) or when I press *Brief*.
-- Style: plain, no honorifics, male, taciturn. TTS is a Gemini model with a fixed voice. If the preferred model fails, it falls back to a newer one and the voice changes slightly. I kept that: a changed voice is a free "the primary failed" signal.
+- Style: plain, no honorifics, taciturn. TTS is a Gemini model. Each role can have its own voice (`voices.example.json`), re-read on every utterance, so changes need no restart. If the preferred TTS model fails, it falls back to a newer one and the voice changes slightly. I kept that: a changed voice is a free "the primary failed" signal.
 - *Brief* gives one prioritized overview across all sessions, in the voice of a partner, not a report.
 
 ## 7. Away from the desk
@@ -65,6 +65,24 @@ During a **meeting recording**, every sound stops: they would be picked up by th
 ## 8. Handoff between agents
 
 When one agent is stuck or the wrong tool, the work moves to another: the **original agent writes its own memo**, a new tab starts a different agent with that memo. It needs nothing but Herdr's CLI. On the Deck, **short press flips the direction, long press (0.7 s) executes**. The long press also keeps a handoff from firing by accident.
+
+## 8a. Roles and handoff (added 2026-10-03 → 10-09)
+
+- **Roles first, models second.** A handoff names a *role* (`builder`), not a model. A table says which agent takes the role, first choice first. Swapping a model is then a one-line change. Role names follow the Hermes profile names, and Hermes owns what a role means.
+- **Pass artifacts, not conversations.** The sending agent writes a memo in a fixed schema to `~/handoffs/`; the receiver is told only to read it. File name `HANDOFF.md` is deliberately not used: other handoff tools overwrite that name in the project root.
+- **Automate what hurts, not what's imaginable.** Second and later choices in the table aren't tried automatically; a one-line shell command counts which handoffs actually repeat, so only repeated ones get automated.
+- **Don't send into a confirmation screen.** An automated handoff once typed a prompt into Codex's hook-review screen (`space/enter toggle`); the space and Enter keystrokes toggled hook trust settings in `~/.codex/config.toml`. Restored by hand. Now the script looks for that screen and stops, renaming the tab `✗role`.
+- **How do you know the prompt arrived?** First try: wait for Herdr's `state_change_seq` to change. Wrong: Codex changes state while starting, which looked like "delivered". Now: wait up to 25 s for the memo's file name to appear on screen, re-send up to three times, then warn.
+- **Usage limits.** A stopped agent can't write its own memo, so the memo is built from the conversation log. The watcher only matches when the limit message *begins* the last lines of the screen, so quoting that message in conversation doesn't trigger it. A handoff target may itself be limited; that is detected and the handoff fails visibly. It is a button, not automatic, because I want to decide who takes over.
+
+## 8b. Model-tier start chime
+
+A short sound on the first message of a conversation says which model tier is running; bigger vehicle, higher tier: **rocket** (high), **airliner** (mid), **drone** (low). Decided by listening:
+
+- Heavy bass from harmonics alone: flat, rejected. Drums, bells, piano, cello, pad, gong and several "boom" variants were compared before the rocket-ignition "thud" won.
+- For mid, piano-like, lightsaber and gusty wind were rejected (a gust's wobble feels unsteady); the airliner won. For low, a light-plane was rejected for the drone.
+- Because I hear it every time: **no irregular wobble, no pitch movement, no whistling components.**
+- Laptop speakers and earphones can't play below about 80 Hz, so "heavy" is built from overtones and low-mid noise, not real sub-bass.
 
 ## 9. Things considered and shelved
 
@@ -85,3 +103,6 @@ When one agent is stuck or the wrong tool, the work moves to another: the **orig
 | 6 | Ports and models | Common ports already taken; a model alias that routes to a reasoning model returns an empty body when `max_tokens` is small | Use unusual ports (Whisper on 18866); give a generous `max_tokens` |
 | 7 | Can't read files from over SSH | macOS privacy protection (TCC) on Documents etc. | Not fixable from the SSH side; recorded as a constraint (the Mac app that owns the permission saves to `~/Documents/HerdrScribe/`) |
 | 8 | Synthesized clock sounded wrong | See section 3 | Real recording, then dropped the clock as an idea |
+| 9 | A hook needs the model name but Claude's hook input has none | Measured: `model` isn't in SessionStart or UserPromptSubmit input | The status line, which does know the model, writes it to a file the hook reads |
+| 10 | Codex hooks lose their trust after editing `hooks.json` | Trust is stored by *position number*; inserting mid-list shifts the numbers | Only append to the end, and approve the new one once |
+| 11 | A hook fires for background runs too | `platform=cli` and an "interactive" flag are also set for non-interactive runs | Check that the caller's stdout is a real terminal |

@@ -129,7 +129,7 @@ RANK = {"blocked": 0, "done": 1, "working": 2, "idle": 3, "unknown": 4}
 
 
 # ディレクトリ名 → 声に出す名前
-READINGS = {"taifunome": "台風の目", "Job-Intelligence-System": "AIジョブスカウト", "00_Kazuki": "カズキ", "atelier": "アトリエ"}
+READINGS = {}  # プロジェクト名の読み替え(例: {"my-project": "マイプロジェクト"})
 
 def ago(minutes: int) -> str:
     if minutes < 60:

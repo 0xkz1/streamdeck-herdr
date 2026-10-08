@@ -2,11 +2,13 @@ import { CONFIG } from "./config";
 import { execFile } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { CLOCK_JP, clockName, nextClock, thinkOn, tickOn, toggleThink, toggleTick } from "./sound";
-import { ambientEnabled, ambientMode, ambientToggle, loadCfg } from "./ambient";
-import { ssh, startHandoff, cronRun, type Usage, focusedAgent, keysAgent, paneCmd, promptAgent, typeAgent, repairInfra, uploadShot, type CronInfo, type Infra, type Snapshot } from "./herdr";
+import { CLOCK_JP, clockName, isMuted, nextClock, thinkOn, tickOn, toggleThink, toggleTick } from "./sound";
+import { ambientEnabled, ambientMode, ambientToggle, ambientUserChange, loadCfg } from "./ambient";
+import { musicState, musicToggle } from "./music";
+import { CPU_SVG, GPU_SVG, RAM_SVG, SSD_SVG, PATROL_SVG } from "./icons";
+import { ssh, startHandoff, cronRun, type PatrolInfo, type LimitInfo, startLimitHandoff, type Usage, type Gpu, type Cpu, type Sys, togglePowerLimit, focusedAgent, keysAgent, paneCmd, promptAgent, typeAgent, repairInfra, uploadShot, type CronInfo, type Infra, type Snapshot } from "./herdr";
 
-export type Ctx = { snap: Snapshot; cron: Record<string, CronInfo>; infra?: Infra; usage?: Usage; scribe?: "running" | "idle" | "off" };
+export type Ctx = { patrol?: PatrolInfo; limit?: LimitInfo; snap: Snapshot; cron: Record<string, CronInfo>; infra?: Infra; usage?: Usage; gpu?: Gpu; cpu?: Cpu; sys?: Sys; scribe?: "running" | "idle" | "off" };
 export type View = { color: string; emoji: string; word: string; label: string };
 // run: 押したとき1回 / hold: 押している間(押す=down、離す=up)
 export type Cmd = {
@@ -172,14 +174,14 @@ async function hueScene(base: string, name: string) {
 	}
 	const hit = sceneCache.list.find(([, v]) => v.name === name);
 	if (!hit) throw new Error(`シーンが見つからない: ${name}`);
-	await curl(["-X", "PUT", `${base}/groups/${HUE_GROUP}/action`, "-d", JSON.stringify({ on: true, scene: hit[0] })]);
+	await ambientUserChange(() => curl(["-X", "PUT", `${base}/groups/${HUE_GROUP}/action`, "-d", JSON.stringify({ on: true, scene: hit[0] })]));
 }
 
 let sceneCache: { at: number; list: [string, any][] } | undefined;
 async function hueFromText(text: string) {
 	const key = JSON.parse(readFileSync(HUE_FILE, "utf8"))[0].success.username as string;
 	const base = `https://${HUE_IP}/api/${key}`;
-	const put = (action: object) => curl(["-X", "PUT", `${base}/groups/${HUE_GROUP}/action`, "-d", JSON.stringify(action)]);
+	const put = (action: object) => ambientUserChange(() => curl(["-X", "PUT", `${base}/groups/${HUE_GROUP}/action`, "-d", JSON.stringify(action)]));
 	const quick = hueQuick(text);
 	if (quick && "scene" in quick) return void (await hueScene(base, String(quick.scene)));
 	if (quick) return void (await put(quick));
@@ -232,7 +234,7 @@ export async function scribeCall(path: string): Promise<"running" | "idle"> {
 	}
 }
 
-const KIND_JP: Record<string, string> = { claude: "Claude", codex: "Codex", hermes: "Hermes", opencode: "OpenCode" };
+const KIND_JP: Record<string, string> = { claude: "Claude", codex: "Codex", hermes: "Hermes", opencode: "OpenCode", agy: "Antigravity" };
 
 // 引き継ぎの組キー。向きは「いま選んでいるエージェント」で自動決定し、flip=true なら反転する
 export function pairDirection(c: Ctx, [a, b]: [string, string], flip: boolean): { from: string; to: string } {
@@ -255,6 +257,16 @@ const handoff = (kind: string, label: string): Cmd => ({
 });
 
 export const COMMANDS: Record<string, Cmd> = {
+	"music-toggle": {
+		view: (_c, busy) => {
+			const s = musicState();
+			return { color: "#f26f23", emoji: s.playing ? "⏸" : "▶", word: busy || s.loading ? "準備中" : s.playing ? "SoundCloud" : "BGM 再生", label: s.error ? "プレイヤー確認" : s.playing ? "一時停止" : "いいね" };
+		},
+		run: async () => musicToggle(),
+	},
+	"mute-toggle": {
+		view: () => isMuted() ? { color: "#555", emoji: "🔇", word: "全消音", label: "ON" } : { color: OK, emoji: "🔊", word: "全消音", label: "OFF" },
+	},
 	"think-toggle": {
 		view: (_c, busy) => (busy ? { color: BUSY, emoji: "🎲", word: "切替中", label: "考え中の音" } : thinkOn() ? { color: "#4a3a6b", emoji: "🎲", word: "考え中の音 ON", label: "コロコロ" } : { color: "#555", emoji: "🎲", word: "考え中の音 OFF", label: "コロコロ" }),
 		run: async () => void toggleThink(),
@@ -271,7 +283,7 @@ export const COMMANDS: Record<string, Cmd> = {
 		view: (_c, busy) => {
 			loadCfg();
 			const m = ambientMode();
-			const c = { idle: "#555", blocked: NG, done: OK, working: "#b8860b" }[m];
+			const c = { idle: "#555", blocked: "#7c3aed", done: OK, working: "#b8860b", heat1: NG, heat2: NG, limit: NG }[m]; // 紫 = 確認待ち / 赤 = GPU 高温
 			return busy ? { color: BUSY, emoji: "💡", word: "切替中", label: "状態ライト" } : ambientEnabled() ? { color: m === "idle" ? "#3a5a4a" : c, emoji: "💡", word: "連動 ON", label: "状態ライト" } : { color: "#555", emoji: "💡", word: "連動 OFF", label: "状態ライト" };
 		},
 		run: async () => void (await ambientToggle()),
@@ -291,6 +303,13 @@ export const COMMANDS: Record<string, Cmd> = {
 	"handoff-codex": handoff("codex", "Codex"),
 	"handoff-hermes": handoff("hermes", "Hermes"),
 	"handoff-opencode": handoff("opencode", "OpenCode"),
+	// 役割名で引き継ぐ(roles.json の先頭の agent が起動する)
+	"handoff-builder": handoff("builder", "Builder"),
+	"handoff-review-editor": handoff("review-editor", "Review"),
+	"handoff-strategist": handoff("strategist", "Strategist"),
+	"handoff-researcher": handoff("researcher", "Researcher"),
+	"handoff-writer": handoff("writer", "Writer"),
+	"handoff-visualizer": handoff("visualizer", "Visualizer"),
 	scribe: {
 		view: (c, busy) =>
 			c.scribe === "running"
@@ -320,10 +339,62 @@ export const COMMANDS: Record<string, Cmd> = {
 	"focus-right": pane("▶", "右へ", "pane", (p) => `focus --pane ${p} --direction right`),
 	"focus-up": pane("🔼", "上へ", "pane", (p) => `focus --pane ${p} --direction up`),
 	"focus-down": pane("🔽", "下へ", "pane", (p) => `focus --pane ${p} --direction down`),
+	navigator: {
+		view: (_c, busy) => ({ color: busy ? BUSY : BASE, emoji: "🔎", word: busy ? "開く" : "Navigator", label: "⇧F4" }),
+		run: async () => void (await ssh("~/.local/bin/herdr plugin action invoke herdr-navigator.open")),
+	},
 	"q-continue": quick("⏩", "続けて", "続けて"),
+	// 使用上限で止まったエージェントを見つけると赤く点滅する。押すと、もう一方(claude↔codex)へ引き継ぐ。自動では引き継がない
+	"limit-handoff": {
+		view: (c, busy) => {
+			const e = c.limit?.events[0];
+			if (busy) return { color: BUSY, emoji: "🔀", word: "開始", label: "引き継ぎ" };
+			if (!e) return { color: "#2b2b33", emoji: "🛟", word: "上限なし", label: "引き継ぎ" };
+			const lit = Math.floor(Date.now() / 600) % 2 === 0;
+			return { color: lit ? NG : "#7a1d20", emoji: "⚠️", word: `上限 ${c.limit!.pending}件`, label: `${KIND_JP[e.agent]}→${KIND_JP[e.target]}` };
+		},
+		run: async (c) => {
+			const e = c.limit?.events[0];
+			if (e) await startLimitHandoff(e.id);
+		},
+	},
+	"patrol-now": {
+		view: (c, busy) => {
+            const p = c.patrol;
+            const sent = p?.counts.sent ?? 0, hold = p?.counts.hold ?? 0;
+            let word = busy ? "受付中" : "まとめて進める", label = "優先順に再開";
+            if (!busy && p?.state === "running") {
+                word = `確認中 ${p.processed}/${p.total}`;
+                label = `再開${sent}・保留${hold}`;
+            } else if (!busy && p?.state === "done") {
+                word = `再開${sent}・保留${hold}`;
+                label = `完了${p.counts.complete ?? 0}・失敗${p.counts.failed ?? 0}`;
+            } else if (!busy && p?.state === "interrupted") {
+                word = "巡回中断"; label = "押して再実行";
+            } else if (!busy && p?.state === "offline") {
+                word = "接続確認"; label = "結果を取得できず";
+            }
+            return { color: busy || p?.state === "running" ? BUSY : "#153b43", emoji: PATROL_SVG, word, label };
+        },
+		run: async () => {
+			const result = JSON.parse(await ssh("/usr/bin/python3 ~/atelier/forge/herdr/patrol_trigger.py"));
+			if (!result.ok) throw new Error(result.error || "巡回を受け付けられませんでした");
+		},
+	},
 	"q-diff": quick("🔍", "diff", "git diff を見せて、変更点を要約して"),
 	"q-test": quick("🧪", "テスト", "テストを実行して、結果を要約して"),
 	"q-commit": quick("💾", "commit", "変更をコミットして。push はしないで"),
+	// 定型文は where.sh / leftover.sh が持つ(herdr のキー ctrl+alt+r / ctrl+alt+l と同じ。文面の直し先は1か所)。
+	// 表示の label はホットキー(TourBox に割り当てるとき見て思い出す用)。TourBox は Ctrl/Option を落とすので Shift だけの shift+f1 / shift+f2(修飾キー無しの f13 / f14 も herdr は受ける)
+	"q-where": {
+		view: (_c, busy) => ({ color: busy ? BUSY : BASE, emoji: "🧭", word: busy ? "送信中" : "状況整理", label: "⇧F1" }),
+		run: async () => void (await ssh("~/atelier/forge/streamdeck-herdr/where.sh")),
+	},
+	// タブを閉じてよいかの確認用。閉じるとペインのプロセスは止まるので、未コミット/動いたままの処理も聞く
+	"q-leftover": {
+		view: (_c, busy) => ({ color: busy ? BUSY : BASE, emoji: "🧹", word: busy ? "送信中" : "やり残し", label: "⇧F2" }),
+		run: async () => void (await ssh("~/atelier/forge/streamdeck-herdr/leftover.sh")),
+	},
 	"q-esc": {
 		view: (_c, busy) => ({ color: busy ? BUSY : "#7a3a3a", emoji: "⏹", word: "中断", label: "Esc" }),
 		run: async (c) => void (await keysAgent(focusedAgent(c.snap), "Escape")),
@@ -349,11 +420,65 @@ export const COMMANDS: Record<string, Cmd> = {
 			await promptAgent(pane, `このスクリーンショットを見て: ${remote}`);
 		},
 	},
-	"cron-taifunome-daily": cron("b0a6385fdd6e", "台風 daily"),
-	"cron-taifunome-weekly": cron("78de250e42f5", "台風 weekly"),
-	"cron-taifunome-ig": cron("88351ab5cf17", "台風 IG"),
-	"cron-taifunome-saved": cron("092a977b3c63", "台風 saved"),
 	"cron-morning-brief": cron("b1f9f269ee08", "朝ブリーフ"),
+	gpu: {
+		view: (c) => {
+			const g = c.gpu;
+			if (!g) return { color: BASE, emoji: GPU_SVG, word: "確認中", label: "GPU" };
+			// 閾値は forge/monitoring/alerts の GPUTemperatureWarning(75)/Critical(83) と揃える
+			return { color: g.temp >= 83 ? NG : g.temp >= 75 ? "#b8860b" : OK, emoji: g.temp >= 83 ? "🔥" : GPU_SVG, word: `${g.temp}°C`, label: `${g.util}% ${Math.round(g.power)}W` };
+		},
+		run: async () => void 0, // 押すと再取得(plugin 側の finally で pollGpu)
+	},
+	cpu: {
+		view: (c) => {
+			const p = c.cpu;
+			if (!p) return { color: BASE, emoji: CPU_SVG, word: "確認中", label: "CPU" };
+			// 閾値は forge/monitoring/alerts の CPUTemperatureHigh(85)/Critical(92) と揃える
+			return { color: p.temp >= 92 ? NG : p.temp >= 85 ? "#b8860b" : OK, emoji: p.temp >= 92 ? "🔥" : CPU_SVG, word: `${p.temp}°C`, label: `${p.util}%` };
+		},
+		run: async () => void 0, // 押すと再取得(plugin 側の finally で pollCpu)
+	},
+	alerts: {
+		view: (c) => {
+			if (!c.sys) return { color: BASE, emoji: "🔔", word: "確認中", label: "アラート" };
+			const a = c.sys.alerts;
+			if (a === null) return { color: NG, emoji: "📡", word: "監視停止", label: "Prometheus 不通" }; // 監視が死んでいる=最悪の状態
+			return a.length ? { color: NG, emoji: "🚨", word: `${a.length}件`, label: a[0].name } : { color: OK, emoji: "✅", word: "異常なし", label: "アラート" };
+		},
+		run: async (c) => {
+			const a = c.sys?.alerts;
+			const text = a === null || a === undefined ? "Prometheus に届きません。docker の prometheus / alertmanager を確認してください。" : a.length ? a.map((x) => `${x.name}: ${x.summary}`).join("\n") : "発火中のアラートはありません。";
+			execFile("/usr/bin/osascript", ["-e", "on run argv", "-e", 'display dialog (item 1 of argv) with title "アラート" buttons {"閉じる"} default button 1 giving up after 60', "-e", "end run", text], () => {});
+		},
+	},
+	mem: {
+		view: (c) => {
+			const m = c.sys?.mem, v = c.sys?.vram;
+			if (!m || !v) return { color: BASE, emoji: RAM_SVG, word: "確認中", label: "メモリ" };
+			// 閾値は HighMemoryUsage(95%) の手前で警告
+			return { color: m.pct >= 95 ? NG : m.pct >= 85 ? "#b8860b" : OK, emoji: RAM_SVG, word: `RAM ${m.pct}%`, label: `VRAM ${(v.usedMiB / 1024).toFixed(1)}G` };
+		},
+		run: async () => void 0,
+	},
+	disk: {
+		view: (c) => {
+			const d = c.sys?.disk, n = c.sys?.nvme;
+			if (!d || n === undefined) return { color: BASE, emoji: SSD_SVG, word: "確認中", label: "ディスク" };
+			const level = d.pct >= 95 || n >= 80 ? 2 : d.pct >= 85 || n >= 70 ? 1 : 0; // NVMe 温度は NVMeTemperatureHigh(70) と揃える
+			return { color: [OK, "#b8860b", NG][level], emoji: SSD_SVG, word: `残 ${d.availG}G`, label: `${d.pct}% ${n}°C` };
+		},
+		run: async () => void 0,
+	},
+	plimit: {
+		view: (c, busy) => {
+			const p = c.sys?.plimit;
+			if (busy) return { color: BUSY, emoji: "⚡", word: "切替中", label: "電力制限" };
+			if (p === undefined) return { color: BASE, emoji: "⚡", word: "確認中", label: "電力制限" };
+			return p < 360 ? { color: "#2f6fdf", emoji: "🛡️", word: `${p}W 制限中`, label: "押して全開に" } : { color: BASE, emoji: "⚡", word: `${p}W 全開`, label: "押して250Wに" };
+		},
+		run: async () => void (await togglePowerLimit()), // sudoers 未導入だと失敗 → キーに ⚠ が出る
+	},
 	infra: {
 		view: (c, busy) => {
 			if (busy) return { color: BUSY, emoji: "🔧", word: "修復中", label: "基盤" };

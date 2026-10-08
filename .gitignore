@@ -10,3 +10,6 @@ last-*.txt
 .env
 *.env
 config.json
+voices.json
+roles/
+patrol-state/

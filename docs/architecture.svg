@@ -98,7 +98,7 @@
     <rect x="1880" y="270" width="300" height="100" rx="10" fill="#fff8e6" stroke="#c98a00" stroke-width="2.5"/>
     <text x="1900" y="302" font-size="17" font-weight="700">LIGHT = state</text>
     <text x="1900" y="328" font-size="14" fill="#4b5563">6 bulbs + Play High</text>
-    <text x="1900" y="350" font-size="14" fill="#4b5563">red pulse · yellow breath · green 15 s</text>
+    <text x="1900" y="350" font-size="14" fill="#4b5563">purple pulse · yellow breath · green 15 s</text>
 
     <rect x="1880" y="400" width="300" height="70" rx="10" fill="#e6f6f6" stroke="#0f8b8d" stroke-width="2.5"/>
     <text x="1900" y="432" font-size="17" font-weight="700">SOUND = event</text>

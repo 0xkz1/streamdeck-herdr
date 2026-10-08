@@ -4,7 +4,7 @@
 判定は「放置された時間」: 確認待ち(blocked)のまま BLOCKED_AFTER 秒、長い作業が完了(done)したまま DONE_AFTER 秒。
 手元にいればすぐ対応されるので通知は飛ばず、外出中・離席中だけ飛ぶ。
 宛先は `hermes send` の書式。プロジェクト別の宛先は ~/.hermes/notify-routes.json:
-  {"default": "telegram", "projects": {"taifunome": "telegram:-100123:17585", "streamdeck-herdr": "slack:#dev"}}
+  {"default": "telegram", "projects": {"my-project": "telegram:<chat-id>", "other-project": "slack:#channel"}}
 環境変数: NOTIFY_DRY=1 で送らず表示だけ / BLOCKED_AFTER, DONE_AFTER, LONG_WORK (秒)
 """
 import json

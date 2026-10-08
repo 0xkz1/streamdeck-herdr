@@ -83,7 +83,7 @@ export function renderEmpty(): string {
 export const tile = (color: string, emoji: string, word: string, label: string) =>
 	toDataUri(
 		`<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144"><rect width="144" height="144" fill="${color}"/>` +
-			`<text x="72" y="30" font-size="24" font-family="Hiragino Sans,Helvetica,sans-serif" font-weight="800" text-anchor="middle" fill="#fff">${esc(word)}</text>` +
-			`<text x="72" y="104" font-size="64" font-family="Apple Color Emoji" text-anchor="middle">${emoji}</text>` +
+			`<text x="72" y="30" font-size="${[...word].reduce((width, ch) => width + (ch.charCodeAt(0) > 0x7f ? 2 : 1), 0) > 12 ? 18 : 24}" font-family="Hiragino Sans,Helvetica,sans-serif" font-weight="800" text-anchor="middle" fill="#fff">${esc(word)}</text>` +
+			(emoji.startsWith("<") ? emoji : `<text x="72" y="104" font-size="64" font-family="Apple Color Emoji" text-anchor="middle">${emoji}</text>`) +
 			`<text x="72" y="136" font-size="${label.length > 10 ? 15 : 20}" font-family="Hiragino Sans,Helvetica,sans-serif" font-weight="600" text-anchor="middle" fill="#fff">${esc(label)}</text></svg>`,
 	);

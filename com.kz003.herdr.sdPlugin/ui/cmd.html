@@ -7,11 +7,22 @@
 <body>
 <sdpi-item label="機能">
   <sdpi-select setting="cmd" placeholder="選んでください">
+    <optgroup label="BGM">
+      <option value="music-toggle">SoundCloud — 再生 / 一時停止</option>
+    </optgroup>
+    <optgroup label="使用上限">
+      <option value="limit-handoff">⚠️ 上限で止まった → もう一方へ引き継ぎ</option>
+    </optgroup>
+    <optgroup label="全セッションの巡回">
+      <option value="patrol-now">まとめて進める — 優先順に再開</option>
+    </optgroup>
     <optgroup label="選択中のエージェントへ送る">
       <option value="q-continue">⏩ 続けて</option>
       <option value="q-diff">🔍 diff を見せて要約</option>
       <option value="q-test">🧪 テストを実行</option>
       <option value="q-commit">💾 コミット(push しない)</option>
+      <option value="q-where">🧭 状況整理(いま何をしている?)</option>
+      <option value="q-leftover">🧹 やり残し確認(閉じる前に)</option>
       <option value="q-esc">⏹ 中断(Esc)</option>
       <option value="clip">📋 クリップボードを送る</option>
       <option value="shot">📸 画面の範囲を撮って送る</option>
@@ -20,6 +31,9 @@
       <option value="voice">🎤 音声入力(押している間だけ録音)</option>
       <option value="enter">⏎ 送信(Enter)</option>
       <option value="hue-voice">💡 声で Hue(コンピュータールーム)</option>
+    </optgroup>
+    <optgroup label="検索・移動">
+      <option value="navigator">🔎 Navigator(タブ・セッションを探す)</option>
     </optgroup>
     <optgroup label="ペイン操作(Ctrl+B 不要)">
       <option value="split-right">◧ 右に分割</option>
@@ -32,10 +46,6 @@
     </optgroup>
     <optgroup label="Hermes cron を今すぐ実行">
       <option value="cron-morning-brief">☀️ 朝ブリーフ</option>
-      <option value="cron-taifunome-daily">台風の目 daily</option>
-      <option value="cron-taifunome-weekly">台風の目 weekly</option>
-      <option value="cron-taifunome-ig">台風の目 IG クリッピング</option>
-      <option value="cron-taifunome-saved">台風の目 保存クリッピング</option>
     </optgroup>
     <optgroup label="Hue(ワンタッチ。中身は presets.json で変えられる)">
       <option value="hue-ambient">💡 エージェント状態ライト(ON/OFF)</option>
@@ -58,7 +68,16 @@
       <option value="handoff-hermes">🔀 → Hermes</option>
       <option value="handoff-opencode">🔀 → OpenCode</option>
     </optgroup>
+    <optgroup label="引き継ぎ(役割・押すとすぐ実行)">
+      <option value="handoff-builder">🔀 → Builder</option>
+      <option value="handoff-review-editor">🔀 → Review</option>
+      <option value="handoff-strategist">🔀 → Strategist</option>
+      <option value="handoff-researcher">🔀 → Researcher</option>
+      <option value="handoff-writer">🔀 → Writer</option>
+      <option value="handoff-visualizer">🔀 → Visualizer</option>
+    </optgroup>
     <optgroup label="作業中の音">
+      <option value="mute-toggle">🔇 Herdr 全消音 ON/OFF</option>
       <option value="think-toggle">🎲 考え中の音(コロコロ)ON/OFF</option>
     </optgroup>
     <optgroup label="作業中の時計(旧案・初期はOFF)">
@@ -67,6 +86,12 @@
     </optgroup>
     <optgroup label="会議・使用量">
       <option value="scribe">🎙 会議の字幕(開始/停止)</option>
+      <option value="gpu">🖥 GPU 温度・使用率・電力</option>
+      <option value="cpu">🧠 CPU 温度・使用率</option>
+      <option value="alerts">🚨 アラート(発火中の件数・押すと内容)</option>
+      <option value="mem">🧮 メモリ・VRAM</option>
+      <option value="disk">💾 ディスク残量・NVMe温度</option>
+      <option value="plimit">🛡 GPU電力制限 切替(250W⇔360W)</option>
       <option value="usage">📊 Claude 使用量(週/5時間)</option>
     </optgroup>
     <optgroup label="基盤">

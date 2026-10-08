@@ -1,0 +1,8 @@
+[Unit]
+Description=Find Claude/Codex panes stopped by a usage limit in Herdr
+
+[Service]
+Type=oneshot
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
+ExecStart=/usr/bin/python3 %h/atelier/forge/streamdeck-herdr/limit_watch.py scan
+TimeoutStartSec=90

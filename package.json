@@ -4,9 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:music": "/bin/sh helper/HerdrMusic/build.sh",
+    "build:power": "clang -O2 -fobjc-arc -framework AppKit -framework IOKit -framework CoreGraphics helper/HerdrPower/main.m -o helper/HerdrPower/power-watch",
     "build": "esbuild src/plugin.ts --bundle --platform=node --target=node20 --format=esm --banner:js=\"import {createRequire as __cr} from 'node:module';const require=__cr(import.meta.url);\" --outfile=com.kz003.herdr.sdPlugin/bin/plugin.js",
     "watch": "npm run build -- --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:ambient": "node --test test_ambient.mjs",
+    "test:power": "node --test test_power.mjs",
+    "test:music": "node --test test_music.mjs"
   },
   "dependencies": {
     "@elgato/streamdeck": "^3.0.1"
