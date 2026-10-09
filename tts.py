@@ -46,7 +46,7 @@ def synth(text: str, voice: str) -> bytes:
     for model in MODELS:  # preview は廃止されうるので次のモデルへ退避
         try:
             return synth_with(model, text, voice)
-        except (urllib.error.URLError, KeyError, IndexError) as e:
+        except (urllib.error.URLError, KeyError, IndexError, RuntimeError) as e:
             last = e
     raise SystemExit(f"tts failed: {last}")
 
@@ -64,6 +64,11 @@ def synth_with(model: str, text: str, voice: str) -> bytes:
         try:
             with urllib.request.urlopen(req, timeout=60) as r:
                 pcm = base64.b64decode(json.load(r)["candidates"][0]["content"]["parts"][0]["inlineData"]["data"])
+            # 生 PCM の末尾に C2PA 署名(JUMBF)が付くことがあり、そのまま鳴らすと 0.13 秒の「ヴツ」になる
+            jumb = pcm.find(b"jumb")
+            tail = pcm.rfind(b"C2PA", max(0, jumb - 64), jumb) if jumb > 0 else -1
+            if tail >= 0:
+                pcm = pcm[:tail - tail % 2]
             buf = io.BytesIO()
             with wave.open(buf, "wb") as w:
                 w.setnchannels(1); w.setsampwidth(2); w.setframerate(24000); w.writeframes(pcm)
@@ -72,7 +77,7 @@ def synth_with(model: str, text: str, voice: str) -> bytes:
             last = e
             if e.code not in (429, 403, 500, 503):
                 raise
-    raise SystemExit(f"all keys failed: {last}")
+    raise RuntimeError(f"all keys failed on {model}: {last}")
 
 
 if __name__ == "__main__":
