@@ -3,15 +3,17 @@ import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { execFile, type ChildProcess } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
-import { fetchPatrol, type PatrolInfo, fetchLimit, type LimitInfo, fetchActivity, fetchUsage, fetchGpu, fetchCpu, fetchSys, fetchCron, fetchInfra, type CronInfo, type Infra, fetchBriefAudio, fetchNarrationAudio, fetchLastBriefText, fetchSnapshot, focusTab, focusWorkspace, type Snapshot, type Status } from "./herdr";
+import { fetchDrive, type DriveInfo, fetchPatrol, type PatrolInfo, fetchLimit, type LimitInfo, fetchActivity, fetchUsage, fetchGpu, fetchCpu, fetchSys, fetchCron, fetchInfra, type CronInfo, type Infra, fetchBriefAudio, fetchNarrationAudio, fetchLastBriefText, fetchSnapshot, focusTab, focusWorkspace, type Snapshot, type Status } from "./herdr";
 import { renderEmpty, renderKey, tile, toDataUri } from "./render";
 import { ambientLimitAlert, ambientSuspend, ambientTick, setGpuTemp } from "./ambient";
-import { isMuted, spawnSound, stopSounds, tick as tickClock, toggleMute } from "./sound";
+import { duckSound, isMuted, registerDuckHook, spawnSound, stopSounds, tick as tickClock, toggleMute } from "./sound";
 import { startPowerWatch } from "./power";
-import { musicPause, musicTick } from "./music";
+import { duckProcess, musicPause, musicTick } from "./music";
 import { setActivities, stopThinking, thinking } from "./thinking";
 import { COMMANDS, pairDirection, pairView, type Ctx } from "./commands";
 import { focusedAgent, startHandoff } from "./herdr";
+
+registerDuckHook((child) => void duckProcess(child));
 
 type KeyAction = SdKeyAction<any>;
 const TERMINAL_APP = "iTerm";
@@ -29,6 +31,7 @@ const lastImage = new Map<string, string>();
 const cmdKeys = new Map<string, { action: KeyAction; cmd?: string; flip?: boolean; lastPane?: string; fired?: boolean; timer?: ReturnType<typeof setTimeout> }>(); // Herdr Cmd
 const busyCmd = new Set<string>();
 let patrolState: PatrolInfo | undefined;
+let driveState: DriveInfo | undefined;
 let limitState: LimitInfo | undefined;
 let limitPolling = false;
 const limitSeen = new Set<string>();
@@ -41,7 +44,7 @@ let gpuState: Awaited<ReturnType<typeof fetchGpu>> | undefined;
 let cpuState: Awaited<ReturnType<typeof fetchCpu>> | undefined;
 let sysState: Awaited<ReturnType<typeof fetchSys>> | undefined;
 let scribeState: "running" | "idle" | "off" = "off";
-const ctx = (): Ctx => ({ patrol: patrolState, limit: limitState, snap, cron: cronState, infra: infraState, usage: usageState, gpu: gpuState, cpu: cpuState, sys: sysState, scribe: scribeState });
+const ctx = (): Ctx => ({ drive: driveState, patrol: patrolState, limit: limitState, snap, cron: cronState, infra: infraState, usage: usageState, gpu: gpuState, cpu: cpuState, sys: sysState, scribe: scribeState });
 
 async function pollLimit() {
     if (limitPolling) return;
@@ -61,9 +64,10 @@ async function pollLimit() {
 async function pollPatrol() {
     if (patrolPolling) return;
     patrolPolling = true;
-    try { patrolState = await fetchPatrol(); }
-    catch { patrolState = { state: "offline", counts: {}, processed: 0, total: 0 }; }
-    finally { patrolPolling = false; }
+    const [patrol, drive] = await Promise.allSettled([fetchPatrol(), fetchDrive()]);
+    patrolState = patrol.status === "fulfilled" ? patrol.value : { state: "offline", counts: {}, processed: 0, total: 0 };
+    driveState = drive.status === "fulfilled" ? drive.value : undefined;
+    patrolPolling = false;
     paint();
 }
 
@@ -201,8 +205,12 @@ function paint() {
 	for (const [id, k] of cmdKeys) {
 		const c = k.cmd ? COMMANDS[k.cmd] : undefined;
 		if (c?.pair && k.lastPane !== snap.focusedPaneId) { k.lastPane = snap.focusedPaneId; k.flip = false; } // 選択が変われば反転は解除
-		const v = c?.pair ? pairView(ctx(), c.pair, !!k.flip, busyCmd.has(id)) : c ? c.view(ctx(), busyCmd.has(id)) : { color: "#2b2b33", emoji: "⚙️", word: "未設定", label: "機能を選ぶ" };
-		set(id, k.action, tile(v.color, v.emoji, v.word, v.label));
+		if (c?.image) {
+			set(id, k.action, c.image(ctx(), busyCmd.has(id)));
+		} else {
+			const v = c?.pair ? pairView(ctx(), c.pair, !!k.flip, busyCmd.has(id)) : c ? c.view(ctx(), busyCmd.has(id)) : { color: "#2b2b33", emoji: "⚙️", word: "未設定", label: "機能を選ぶ" };
+			set(id, k.action, tile(v.color, v.emoji, v.word, v.label));
+		}
 	}
 }
 
@@ -376,7 +384,7 @@ class CmdAction extends SingletonAction<{ cmd?: string }> {
 					await ev.action.showAlert();
 				} finally {
 					busyCmd.delete(id);
-			if (cmdKeys.get(id)?.cmd === "patrol-now") void pollPatrol();
+			if (cmdKeys.get(id)?.cmd === "patrol-now" || cmdKeys.get(id)?.cmd?.startsWith("drive-")) void pollPatrol();
 					paint();
 				}
 			}, 700);
@@ -402,7 +410,7 @@ class CmdAction extends SingletonAction<{ cmd?: string }> {
 			await ev.action.showAlert();
 		} finally {
 			busyCmd.delete(id);
-			if (cmdKeys.get(id)?.cmd === "patrol-now") void pollPatrol();
+			if (cmdKeys.get(id)?.cmd === "patrol-now" || cmdKeys.get(id)?.cmd?.startsWith("drive-")) void pollPatrol();
 			void pollAux();
 			void poll();
 			void pollScribe();
@@ -440,7 +448,7 @@ function play(wav: Buffer): Promise<void> {
 	const file = `${tmpdir()}/herdr-voice-${seq++ % 4}.wav`;
 	writeFileSync(file, wav);
 	return new Promise((done) => {
-		const child = spawnSound("/usr/bin/afplay", [file]);
+		const child = duckSound(spawnSound("/usr/bin/afplay", [file]));
 		if (!child) return done();
 		speaking = child;
 		const finish = () => { if (speaking === child) speaking = undefined; done(); };
@@ -470,12 +478,13 @@ function toggleAllSound() {
 	paint();
 }
 
-// ---- 通知音: 出来事の大きさに合わせる(普通の完了=done、確認待ち=ask、長い作業の完了=big) ----
+// ---- 通知音: 出来事の大きさに合わせる(普通の完了=done、確認待ち=ask、長い作業の完了=big、特に長い作業の完了=huge) ----
 const SOUND_DIR = `${process.env.HOME}/streamdeck-herdr/sounds`;
 const BIG_WORK_MS = 20 * 60_000; // これ以上働いた後の完了は「大きな達成」
+const HUGE_WORK_MS = 30 * 60_000; // これ以上は「特大」
 const lastChime = new Map<string, number>();
 const lastPick = new Map<string, string>();
-function chime(kind: "ask" | "done" | "big" | "limit") {
+function chime(kind: "ask" | "done" | "big" | "huge" | "limit") {
 	if (isMuted() || scribeState === "running") return; // 消音中または会議の録音中は鳴らさない
 	const now = Date.now();
 	if (now - (lastChime.get(kind) ?? 0) < 20_000) return; // 同じ音は20秒に1回まで
@@ -493,7 +502,7 @@ function chime(kind: "ask" | "done" | "big" | "limit") {
 			file = `${dir}/${f}`;
 		}
 	} catch { /* 従来の音で鳴らす */ }
-	spawnSound("/usr/bin/afplay", ["-v", "0.6", file]);
+	duckSound(spawnSound("/usr/bin/afplay", ["-v", "0.6", file]));
 }
 
 function detect(next: Snapshot) {
@@ -503,7 +512,10 @@ function detect(next: Snapshot) {
 		const p = prev.get(t.id) ?? (baselined ? { status: "none" as Status, since: now } : undefined);
 		if (baselined && autoOn && !isMuted() && p && p.status !== t.status && t.agent) {
 			if (t.status === "blocked") chime("ask");
-			else if (t.status === "done" && p.status === "working" && now - p.since >= AUTO_DONE_MIN_MS) chime(now - p.since >= BIG_WORK_MS ? "big" : "done");
+			else if (t.status === "done" && p.status === "working" && now - p.since >= AUTO_DONE_MIN_MS) {
+				const elapsed = now - p.since;
+				chime(elapsed >= HUGE_WORK_MS ? "huge" : elapsed >= BIG_WORK_MS ? "big" : "done");
+			}
 		}
 		if (baselined && autoOn && !isMuted() && p && p.status !== t.status && t.paneId && t.agent) {
 			const ws = next.workspaces.find((w) => w.id === t.workspaceId)?.label ?? "";

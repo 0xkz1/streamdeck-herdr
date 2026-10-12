@@ -8,13 +8,34 @@
 <sdpi-item label="機能">
   <sdpi-select setting="cmd" placeholder="選んでください">
     <optgroup label="BGM">
-      <option value="music-toggle">SoundCloud — 再生 / 一時停止</option>
+      <option value="music-info">ℹ️ 再生中の曲 (曲名・作者・残り時間 / 押して開く)</option>
+      <option value="music-play">⏯ 再生 / 一時停止 (トグル)</option>
+      <option value="music-prev">⏮ 前の曲へ戻る</option>
+      <option value="music-next">⏭ 次の曲へスキップ</option>
+      <option value="music-vol-up">🔊 BGM 音量 +10%</option>
+      <option value="music-vol-down">🔉 BGM 音量 -10%</option>
+      <option value="music-acid">🌀 Acid Pauli (DJ Sets & Mixes)</option>
+      <option value="music-soundtrack">🎬 映画音楽 (Soundtrack / OST)</option>
+      <option value="music-long">🎯 長尺BGM (作業用Mix・セット)</option>
+      <option value="music-short">🎵 短曲 (10分未満)</option>
+      <option value="music-chill">☕ チル・静か (Ambient / Lo-Fi)</option>
+      <option value="music-upbeat">⚡ 気分転換 (テンポ良い曲)</option>
+      <option value="music-focus">🎧 作業没入 (長尺アンビエント)</option>
+      <option value="music-toggle">🎲 全曲BGM (いいね全曲シャッフル)</option>
+      <option value="music-sync">🔄 SoundCloud いいね更新</option>
     </optgroup>
     <optgroup label="使用上限">
       <option value="limit-handoff">⚠️ 上限で止まった → もう一方へ引き継ぎ</option>
+      <option value="agy-rotate">🔄 AGY アカウント切替 (次のGoogle垢へ)</option>
     </optgroup>
     <optgroup label="全セッションの巡回">
       <option value="patrol-now">まとめて進める — 優先順に再開</option>
+    </optgroup>
+    <optgroup label="自動運転">
+      <option value="drive-away">🌙 60分離席 — 5分ごとに巡回 / 通常運転へ戻す</option>
+      <option value="drive-toggle">🚦 自動運転 ON / OFF</option>
+      <option value="drive-report">📋 帰席レポート — 変更・検証・必要な判断</option>
+      <option value="q-queue">📚 残りをキューへ — 合意済みの未完了作業を登録</option>
     </optgroup>
     <optgroup label="選択中のエージェントへ送る">
       <option value="q-continue">⏩ 続けて</option>
@@ -61,12 +82,14 @@
       <option value="pair-claude-codex">🔀 Claude ⇄ Codex</option>
       <option value="pair-claude-hermes">🔀 Claude ⇄ Hermes</option>
       <option value="pair-claude-opencode">🔀 Claude ⇄ OpenCode</option>
+      <option value="pair-claude-agy">🔀 Claude ⇄ Antigravity</option>
     </optgroup>
     <optgroup label="引き継ぎ(一方向・押すとすぐ実行)">
       <option value="handoff-claude">🔀 → Claude</option>
       <option value="handoff-codex">🔀 → Codex</option>
       <option value="handoff-hermes">🔀 → Hermes</option>
       <option value="handoff-opencode">🔀 → OpenCode</option>
+      <option value="handoff-agy">🔀 → Antigravity</option>
     </optgroup>
     <optgroup label="引き継ぎ(役割・押すとすぐ実行)">
       <option value="handoff-builder">🔀 → Builder</option>

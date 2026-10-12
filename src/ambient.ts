@@ -1,17 +1,17 @@
-import { CONFIG } from "./config";
 // エージェントの状態に合わせて Hue の電球の色を変える(環境光の通知)。
 //   確認待ち=紫 / 完了=緑 / 作業中=普段の色で呼吸 / GPU 高温=赤 / それ以外=最新のシーンに戻す
 // 設定: ~/.config/herdr-hue/ambient.json  {"enabled":true,"lights":["6"],"working":true,"doneSeconds":30,"pulse":true}
+import { CONFIG } from "./config";
 import { execFile } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import type { Snapshot } from "./herdr";
-import { isMuted, spawnSound } from "./sound";
+import { duckSound, isMuted, spawnSound } from "./sound";
 import { isSleeping } from "./power";
 
 const CFG = `${process.env.HOME}/.config/herdr-hue`;
 const IP = CONFIG.hueIp;
 
-type Cfg = { enabled: boolean; lights: string[]; working: boolean; doneSeconds: number; pulse: boolean; neutral: Record<string, unknown>; heatSound: boolean };
+type Cfg = { enabled: boolean; lights: string[]; referenceLights: string[]; working: boolean; doneSeconds: number; pulse: boolean; neutral: Record<string, unknown>; heatSound: boolean };
 type Mode = "idle" | "blocked" | "done" | "working" | "heat1" | "heat2" | "limit";
 
 const COLOR: Record<Exclude<Mode, "idle">, Record<string, unknown>> = {
@@ -46,7 +46,6 @@ function startPulse(m: Exclude<Mode, "idle">) {
 		try {
 			pulseHigh = !pulseHigh;
 			for (const id of cfg.lights) {
-				await refreshScene(id);
 				if (userScenePending()) return;
 				await applyMode(id, m, pulseHigh ? spec.hi : spec.lo, spec.tt);
 			}
@@ -66,7 +65,7 @@ export const heatLevel = (prev: 0 | 1 | 2, t: number): 0 | 1 | 2 => {
 };
 let heat: 0 | 1 | 2 = 0;
 let lastAlarm = 0;
-const alarm = (level: 1 | 2) => spawnSound("/opt/homebrew/bin/play", ["-q", "-v", "0.6", `${process.env.HOME}/streamdeck-herdr/sounds/heat${level}.wav`]);
+const alarm = (level: 1 | 2) => duckSound(spawnSound("/opt/homebrew/bin/play", ["-q", "-v", "0.6", `${process.env.HOME}/streamdeck-herdr/sounds/heat${level}.wav`]));
 // 温度を渡す(取得失敗 = undefined のときは直前の状態を保つ)。音は上昇時に1回、83°C以上の間は30秒ごと
 export function setGpuTemp(t?: number) {
 	if (t === undefined) return;
@@ -77,7 +76,7 @@ export function setGpuTemp(t?: number) {
 	if (heat > prev || (heat === 2 && Date.now() - lastAlarm > 30_000)) { lastAlarm = Date.now(); alarm(heat); }
 }
 
-let cfg: Cfg = { enabled: true, lights: ["6"], working: true, doneSeconds: 15, pulse: true, neutral: { on: true, bri: 130, ct: 340 }, heatSound: true };
+let cfg: Cfg = { enabled: true, lights: ["6"], referenceLights: [], working: true, doneSeconds: 15, pulse: true, neutral: { on: true, bri: 130, ct: 340 }, heatSound: true };
 let cfgAt = 0;
 let mode: Mode = "idle";
 let doneSince = 0;
@@ -86,6 +85,11 @@ const SAVED_FILE = `${CFG}/ambient-saved.json`; // 元の状態をディスク�
 const saved = new Map<string, any>(); // 点ける前の状態
 const applied = new Map<string, any>(); // 最後に私たちが設定した状態(ユーザーが変えたか判定する用)
 const pending = new Map<string, any>(); // 応答未確認の自分の操作。新しいシーンとして取り込まない
+const references = new Map<string, any>(); // Herdrが変更しない灯の状態
+const baseline = new Map<string, any>(); // 保存シーン／明示した操作から得た基準。復元後も保持する
+const observed = new Map<string, any>(); // 参照灯と同時に読んだ状態。重複したGETを避ける
+let referenceCandidate = "";
+let referenceChangedAt = 0;
 const settledAt = new Map<string, number>();
 let busy = false;
 let suspended = false;
@@ -125,8 +129,9 @@ function userScenePending() {
 }
 
 const curl = (args: string[]) => new Promise<string>((res, rej) => execFile("/usr/bin/curl", ["-sk", "-m", "6", ...args], (e, o) => (e ? rej(new Error(`Hue transport failed (${e.code ?? "unknown"})`)) : res(o))));
-const base = () => `https://${IP}/api/${JSON.parse(readFileSync(`${CFG}/bridge.json`, "utf8"))[0].success.username}`;
-const persist = () => { try { if (saved.size) writeFileSync(SAVED_FILE, JSON.stringify({ saved: Object.fromEntries(saved), applied: Object.fromEntries(applied), pending: Object.fromEntries(pending) })); else if (existsSync(SAVED_FILE)) unlinkSync(SAVED_FILE); } catch { /* 無くても動く */ } };
+const username = () => JSON.parse(readFileSync(`${CFG}/bridge.json`, "utf8"))[0].success.username;
+const base = () => `https://${IP}/api/${username()}`;
+const persist = () => { try { if (saved.size || baseline.size) writeFileSync(SAVED_FILE, JSON.stringify({ saved: Object.fromEntries(saved), applied: Object.fromEntries(applied), pending: Object.fromEntries(pending), references: Object.fromEntries(references), baseline: Object.fromEntries(baseline) })); else if (existsSync(SAVED_FILE)) unlinkSync(SAVED_FILE); } catch { /* 無くても動く */ } };
 // 私たちの色(黄・緑・赤)に見えるか。元の色として覚えてはいけない
 const looksLikeOverlay = (st: any) => st?.on && st.colormode === "hs" && st.sat >= 240 && [0, 9000, 12750, 25500, 50000].some((h) => Math.abs((st.hue ?? -9999) - h) < 600);
 const light = async (id: string) => JSON.parse(await curl([`${base()}/lights/${id}`])).state;
@@ -150,9 +155,60 @@ function matches(cur: any, a: any, brightnessTolerance = 2) {
 	return cur.colormode === "hs" && Math.min(Math.abs(cur.hue - a.hue), 65536 - Math.abs(cur.hue - a.hue)) <= 800 && Math.abs(cur.sat - a.sat) <= 40;
 }
 
-// 実機は66を送った後に71等を報告する。この差を基準の変更にすると減光が累積する。
-// 自分の操作との比較だけ、普段の明るさの10%+2までの報告差を許容する。
-const matchesApplied = (id: string, cur: any, a: any) => matches(cur, a, Math.ceil((saved.get(id)?.bri ?? a.bri ?? 0) * 0.1) + 2);
+// 点滅対象の明るさは自分で変更しているため、基準更新の根拠にしない。
+// 明るさの更新元は明示した操作、または変更していない参照灯に一致する保存シーン。
+const matchesApplied = (_id: string, cur: any, a: any) => matches(cur, a, 254);
+
+async function sceneFromReferences(states: Record<string, any>) {
+	const v2 = async (kind: string) => JSON.parse(await curl(["-H", `hue-application-key: ${username()}`, `https://${IP}/clip/v2/resource/${kind}`])).data;
+	const ids = new Map<string, string>((await v2("light")).map((l: any) => [l.id, l.id_v1?.split("/").pop()]));
+	const candidates = (await v2("scene")).filter((s: any) => cfg.referenceLights.every((id) => {
+		const a = s.actions.find((a: any) => ids.get(a.target.rid) === id)?.action;
+		if (!a) return false;
+		const st: any = { on: a.on?.on ?? true, bri: a.dimming ? Math.round(a.dimming.brightness * 2.55) : undefined,
+			...(a.color_temperature?.mirek != null ? { ct: a.color_temperature.mirek } : a.color ? { xy: [a.color.xy.x, a.color.xy.y] } : {}) };
+		return matches(st.xy && states[id].colormode === "hs" ? { ...states[id], colormode: "xy" } : states[id], st);
+	}));
+	if (candidates.length !== 1 || !candidates[0].id_v1) return undefined;
+	const scene = JSON.parse(await curl([`${base()}${candidates[0].id_v1}`]));
+	if (!cfg.lights.every((id) => scene.lightstates?.[id])) return undefined;
+	amb(`reference scene ${candidates[0].metadata.name}`);
+	return Object.fromEntries(cfg.lights.map((id) => {
+		const st = scene.lightstates[id];
+		return [id, { ...states[id], ...st, colormode: st.ct !== undefined ? "ct" : st.xy ? "xy" : "hs" }];
+	}));
+}
+
+async function refreshReferences(): Promise<"unchanged" | "waiting" | "changed"> {
+	if (!cfg.referenceLights.length) return "unchanged";
+	if (cfg.referenceLights.some((id) => cfg.lights.includes(id))) throw new Error("Hue reference lights must not be animated");
+	const all = JSON.parse(await curl([`${base()}/lights`]));
+	const states = Object.fromEntries(Object.entries(all).map(([id, l]: [string, any]) => [id, l.state]));
+	if (cfg.referenceLights.some((id) => !states[id])) throw new Error("Hue reference light missing");
+	for (const id of cfg.lights) observed.set(id, states[id]);
+	const first = !references.size;
+	if (!first && cfg.referenceLights.every((id) => matches(states[id], sceneState(references.get(id))))) {
+		referenceCandidate = "";
+		return "unchanged";
+	}
+	if (!first) {
+		stopPulse();
+		const candidate = JSON.stringify(cfg.referenceLights.map((id) => sceneState(states[id])));
+		if (candidate !== referenceCandidate) { referenceCandidate = candidate; referenceChangedAt = Date.now(); }
+		if (Date.now() - referenceChangedAt < 1500) return "waiting";
+	}
+	const scene = await sceneFromReferences(states);
+	for (const id of cfg.referenceLights) references.set(id, states[id]);
+	for (const id of cfg.lights) {
+		if (scene) baseline.set(id, scene[id]);
+		else if (!baseline.has(id) && saved.has(id)) baseline.set(id, saved.get(id));
+		else if (baseline.has(id)) baseline.set(id, { ...baseline.get(id), on: states[id].on });
+		if (saved.has(id) && baseline.has(id)) { saved.set(id, baseline.get(id)); applied.delete(id); pending.delete(id); }
+	}
+	if (!first) persist(); // 起動時はrecoverStaleが保存ファイルを読むまで上書きしない
+	referenceCandidate = "";
+	return first ? "unchanged" : "changed";
+}
 
 // 最後の送信値と違う応答は、呼吸を止めたまま再確認する。
 // 遅れて届いた自分の状態をユーザー操作として記録しない。
@@ -173,13 +229,25 @@ async function refreshScene(id: string) {
 		await applyState(id, pending.get(id));
 		return false;
 	}
+	if (cfg.referenceLights.length && saved.has(id)) {
+		// シーンは参照灯から判定済み。対象灯の色・明るさの遅延報告では再判定しない。
+		if (observed.get(id)?.on === false && saved.get(id).on) {
+			const off = { ...saved.get(id), on: false };
+			saved.set(id, off); baseline.set(id, off); applied.delete(id); persist();
+			return true;
+		}
+		return false;
+	}
 	const readAt = Date.now();
-	let cur = await light(id);
+	let cur = cfg.referenceLights.length && observed.has(id) ? observed.get(id) : await light(id);
 	const a = applied.get(id);
 	if (a && readAt >= (settledAt.get(id) ?? 0)) cur = await confirmChange(id, cur, a);
 	if (!saved.has(id) || (a && readAt >= (settledAt.get(id) ?? 0) && !matchesApplied(id, cur, a))) {
 		amb(`scene ${id}: bri ${saved.get(id)?.bri} -> ${cur.bri}, expected=${a?.bri} color=${cur.colormode}`);
-		saved.set(id, cur);
+		const before = saved.get(id);
+		const st = before ? { ...cur, bri: before.bri } : baseline.has(id) ? { ...baseline.get(id), ...(!cur.on ? { on: false } : {}) } : cur;
+		saved.set(id, st);
+		if (cfg.referenceLights.length) baseline.set(id, st);
 		applied.delete(id);
 		persist();
 		return true;
@@ -236,20 +304,22 @@ export async function ambientToggle() {
 	} // mode を戻さないと、再度有効にしたとき同じ色を付け直さない
 }
 
-// 戻す。ただし、私たちが付けた色から変わっていたら(=ユーザーが操作した)触らない
+// 参照灯が同じシーンなら戻す。直前にユーザーが部屋のシーンを変えた場合は保つ。
 async function restore() {
 	stopPulse();
+	const states = cfg.referenceLights.length && saved.size ? JSON.parse(await curl([base() + "/lights"])) : undefined;
+	const referenceChanged = states && cfg.referenceLights.some((id) => !states[id]?.state || !references.has(id) || !matches(states[id].state, sceneState(references.get(id))));
 	for (const id of cfg.lights) {
 		const before = saved.get(id);
 		if (!before) continue;
 		try {
 			const remaining = (settledAt.get(id) ?? 0) - Date.now();
-			if (remaining > 0) await new Promise((r) => setTimeout(r, remaining));
+			if (!states && remaining > 0) await new Promise((r) => setTimeout(r, remaining));
 			const previous = applied.get(id);
 			const a = pending.get(id) ?? previous;
-			const cur = await confirmChange(id, await light(id), a);
+			const cur = states ? states[id].state : await confirmChange(id, await light(id), a);
 			amb(`restore ${id}: cur hue=${cur.hue} sat=${cur.sat} on=${cur.on} / applied hue=${a?.hue} sat=${a?.sat} / before=${JSON.stringify(before)}`);
-			const touched = a && !matchesApplied(id, cur, a) && !(pending.has(id) && (matches(cur, sceneState(before)) || (previous && matchesApplied(id, cur, previous))));
+			const touched = states ? referenceChanged || (!cur.on && before.on) : a && !matchesApplied(id, cur, a) && !(pending.has(id) && (matches(cur, sceneState(before)) || (previous && matchesApplied(id, cur, previous))));
 			amb(`restore ${id}: touched=${touched}`);
 			if (!touched) {
 				await applyState(id, { ...sceneState(before), transitiontime: 0 });
@@ -266,11 +336,18 @@ async function restore() {
 let recovered = false;
 // プラグインが色を付けたまま止まった場合、起動直後に元の色へ戻す(ファイルに残した元の状態を使う)
 async function recoverStale() {
+	if (cfg.referenceLights.length && !references.size) await refreshReferences();
 	recovered = true;
 	try {
 		const data = JSON.parse(readFileSync(SAVED_FILE, "utf8")) as Record<string, any>;
 		const raw = data.saved ?? data; // 以前の保存形式も回復する
-		for (const [id, before] of Object.entries(raw)) saved.set(id, before);
+		const sameReferences = references.size && cfg.referenceLights.every((id) => data.references?.[id] && matches(references.get(id), sceneState(data.references[id])));
+		if (sameReferences) for (const [id, st] of Object.entries(data.baseline ?? {})) baseline.set(id, st);
+		for (const [id, before] of Object.entries(raw)) {
+			const st = baseline.get(id) ?? before;
+			saved.set(id, st);
+			if (cfg.referenceLights.length) baseline.set(id, st);
+		}
 		for (const [id, body] of Object.entries(data.pending ?? {})) pending.set(id, body);
 		for (const id of Object.keys(raw)) {
 			// 私たちの色(黄・紫など)のまま残っているなら戻す、ユーザーが別の色にしたなら触らない
@@ -309,17 +386,22 @@ export async function ambientSuspend(sleeping: boolean) {
 async function tick(snap: Snapshot) {
 	loadCfg();
 	if (!recovered) await recoverStale();
-	const changedScene = userScenePending();
+	let changedScene = userScenePending();
 	if (changedScene) {
 		if (Date.now() < userChangeAt) return;
 		for (const id of cfg.lights) {
-			if (mode !== "idle") saved.set(id, await light(id));
+			const st = await light(id);
+			if (mode !== "idle") saved.set(id, st);
+			if (cfg.referenceLights.length) baseline.set(id, st);
 			applied.delete(id);
 			pending.delete(id);
 		}
 		scenePending = false;
 		persist();
 	}
+	const referenceChange = await refreshReferences();
+	if (referenceChange === "waiting") return;
+	if (referenceChange === "changed") changedScene = true;
 	if (!cfg.enabled && heat === 0 && mode !== "heat1" && mode !== "heat2") return; // 無効でも高温だけは光らせる(安全)
 	const agents = snap.tabs.filter((t) => t.agent);
 	let next: Mode = "idle";

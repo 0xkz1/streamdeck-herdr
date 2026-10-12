@@ -11,6 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test:ambient": "node --test test_ambient.mjs",
     "test:power": "node --test test_power.mjs",
+    "test:sound": "node --test test_sound.mjs",
+    "test:voice": "node --test test_voice_input.mjs",
     "test:music": "node --test test_music.mjs"
   },
   "dependencies": {

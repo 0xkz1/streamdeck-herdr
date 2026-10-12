@@ -1,19 +1,21 @@
 import { CONFIG } from "./config";
 import { execFile } from "node:child_process";
-import { appendFileSync, existsSync, readFileSync, unlinkSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { CLOCK_JP, clockName, isMuted, nextClock, thinkOn, tickOn, toggleThink, toggleTick } from "./sound";
 import { ambientEnabled, ambientMode, ambientToggle, ambientUserChange, loadCfg } from "./ambient";
-import { musicState, musicToggle } from "./music";
+import { musicNext, musicOpen, musicPrev, musicState, musicSync, musicToggle, musicVolumeDown, musicVolumeUp } from "./music";
+import { renderNowPlaying } from "./render";
 import { CPU_SVG, GPU_SVG, RAM_SVG, SSD_SVG, PATROL_SVG } from "./icons";
-import { ssh, startHandoff, cronRun, type PatrolInfo, type LimitInfo, startLimitHandoff, type Usage, type Gpu, type Cpu, type Sys, togglePowerLimit, focusedAgent, keysAgent, paneCmd, promptAgent, typeAgent, repairInfra, uploadShot, type CronInfo, type Infra, type Snapshot } from "./herdr";
+import { driveCommand, fetchDriveReport, type DriveInfo, ssh, startHandoff, cronRun, type PatrolInfo, type LimitInfo, startLimitHandoff, type Usage, type Gpu, type Cpu, type Sys, togglePowerLimit, focusedAgent, keysAgent, paneCmd, promptAgent, repairInfra, uploadShot, type CronInfo, type Infra, type Snapshot } from "./herdr";
 
-export type Ctx = { patrol?: PatrolInfo; limit?: LimitInfo; snap: Snapshot; cron: Record<string, CronInfo>; infra?: Infra; usage?: Usage; gpu?: Gpu; cpu?: Cpu; sys?: Sys; scribe?: "running" | "idle" | "off" };
+export type Ctx = { drive?: DriveInfo; patrol?: PatrolInfo; limit?: LimitInfo; snap: Snapshot; cron: Record<string, CronInfo>; infra?: Infra; usage?: Usage; gpu?: Gpu; cpu?: Cpu; sys?: Sys; scribe?: "running" | "idle" | "off" };
 export type View = { color: string; emoji: string; word: string; label: string };
 // run: 押したとき1回 / hold: 押している間(押す=down、離す=up)
 export type Cmd = {
 	pair?: [string, string]; // 引き継ぎの組(長押しで実行 / 短押しで向きを反転)
 	view: (c: Ctx, busy: boolean) => View;
+	image?: (c: Ctx, busy: boolean) => string;
 	run?: (c: Ctx) => Promise<void>;
 	hold?: { down: (c: Ctx) => Promise<void>; up: (c: Ctx) => Promise<void> };
 };
@@ -91,7 +93,7 @@ const timing = (who: string, msg: string) => {
 };
 
 // 押している間だけ録音 → 文字にして sink に渡す(音声入力と Hue 音声で共通)
-function holdToTalk(label: string, color: string, sink: (text: string, c: Ctx) => Promise<void>, needAgent: boolean): Cmd {
+function holdToTalk(label: string, color: string, sink: (text: string, c: Ctx) => Promise<void>): Cmd {
 	return {
 		view: () =>
 			voiceOwner === label && voiceState === "rec"
@@ -100,9 +102,8 @@ function holdToTalk(label: string, color: string, sink: (text: string, c: Ctx) =
 					? { color: BUSY, emoji: "🤔", word: voiceLocal ? "Mac内で変換" : "変換中", label }
 					: { color, emoji: label.startsWith("Hue") ? "💡" : "🎤", word: "押して話す", label },
 		hold: {
-			down: async (c) => {
+			down: async () => {
 				if (voiceState !== "idle") return;
-				if (needAgent) focusedAgent(c.snap); // 送り先がなければここで注意マーク
 				const r = await mic("/start");
 				if (r !== "recording") throw new Error(`録音を開始できない: ${r}`);
 				voiceState = "rec";
@@ -135,7 +136,17 @@ function holdToTalk(label: string, color: string, sink: (text: string, c: Ctx) =
 	};
 }
 
-const voice = holdToTalk("音声入力", "#2d6a8f", async (text, c) => void (await typeAgent(focusedAgent(c.snap), text)), true);
+async function pasteFrontApp(text: string): Promise<void> {
+	// 認識結果は引数として渡す。アプリを切り替えず、現在の入力欄に日本語もそのまま貼る。
+	await run("/usr/bin/osascript", [
+		"-e", "on run argv",
+		"-e", "set the clipboard to item 1 of argv",
+		"-e", 'tell application "System Events" to keystroke "v" using command down',
+		"-e", "end run",
+		"--", text,
+	]);
+}
+const voice = holdToTalk("音声入力", "#2d6a8f", pasteFrontApp);
 
 // ---- Hue: 声で操作(対象は「コンピュータールーム」) ----
 const HUE_FILE = `${process.env.HOME}/.config/herdr-hue/bridge.json`;
@@ -210,7 +221,7 @@ const huePreset = (name: string): Cmd => {
 		run: async () => void (await run("/usr/bin/python3", [`${process.env.HOME}/streamdeck-herdr/hue.py`, "preset", name])),
 	};
 };
-const hueVoice = holdToTalk("Hue 音声", "#c2410c", async (text) => hueFromText(text), false);
+const hueVoice = holdToTalk("Hue 音声", "#c2410c", async (text) => hueFromText(text));
 
 // ペイン操作: キーボードの prefix(Ctrl+B)を押さずに、分割・移動・ズームができる
 const pane = (emoji: string, word: string, label: string, args: (p: string) => string): Cmd => ({
@@ -250,19 +261,118 @@ export function pairView(c: Ctx, pair: [string, string], flip: boolean, busy: bo
 }
 const pairCmd = (pair: [string, string]): Cmd => ({ pair, view: (c, busy) => pairView(c, pair, false, busy) });
 
-// 引き継ぎ: 元のエージェント本人にメモを書かせ、新しいタブで別のエージェントを起動して続きをやらせる
+// 引き継ぎ: 本人にメモを書かせ、同じタブの右側に追加したペインで別のエージェントを起動する
 const handoff = (kind: string, label: string): Cmd => ({
 	view: (_c, busy) => ({ color: busy ? BUSY : "#6a4a8f", emoji: "🔀", word: busy ? "開始" : "引き継ぎ", label: `→ ${label}` }),
 	run: async (c) => void (await startHandoff(focusedAgent(c.snap), kind)),
 });
 
+const musicCmd = (category: string, label: string, emoji: string, activeColor: string): Cmd => ({
+	view: (_c, busy) => {
+		const s = musicState();
+		const isCategory = (s.category === category) || (category === "all" && (!s.category || s.category === "all"));
+		const isPlayingThis = (s.playing || s.loading) && isCategory;
+		let line = "再生";
+		if (s.error && isCategory) {
+			line = "プレイヤー確認";
+		} else if (isPlayingThis) {
+			if (s.artist) {
+				line = s.artist.length > 7 ? s.artist.slice(0, 6) + "…" : s.artist;
+			} else if (s.track) {
+				line = s.track.length > 7 ? s.track.slice(0, 6) + "…" : s.track;
+			} else {
+				line = "再生中";
+			}
+		}
+		const titleWord = isPlayingThis && s.track ? (s.track.length > 7 ? s.track.slice(0, 6) + "…" : s.track) : label;
+		return {
+			color: isPlayingThis ? activeColor : "#2a2238",
+			emoji: isPlayingThis ? (s.playing ? "⏸" : "⏳") : emoji,
+			word: busy || (s.loading && isCategory) ? "準備中" : titleWord,
+			label: line,
+		};
+	},
+	run: async () => musicToggle(category),
+});
+
 export const COMMANDS: Record<string, Cmd> = {
-	"music-toggle": {
+	"music-info": {
+		image: () => {
+			const s = musicState();
+			return renderNowPlaying({
+				track: s.track,
+				artist: s.artist,
+				playing: s.playing,
+				loading: s.loading,
+				remaining: s.remaining,
+			});
+		},
 		view: (_c, busy) => {
 			const s = musicState();
-			return { color: "#f26f23", emoji: s.playing ? "⏸" : "▶", word: busy || s.loading ? "準備中" : s.playing ? "SoundCloud" : "BGM 再生", label: s.error ? "プレイヤー確認" : s.playing ? "一時停止" : "いいね" };
+			return {
+				color: s.playing ? "#f26f23" : "#181324",
+				emoji: s.playing ? "🎵" : "💤",
+				word: busy ? "確認中" : s.playing ? (s.track.slice(0, 6) || "再生中") : "停止中",
+				label: s.artist ? s.artist.slice(0, 8) : "曲情報",
+			};
 		},
-		run: async () => musicToggle(),
+		run: async () => musicOpen(),
+	},
+	"music-play": {
+		view: (_c, busy) => {
+			const s = musicState();
+			return {
+				color: s.playing ? "#f26f23" : "#3a3358",
+				emoji: busy || s.loading ? "⏳" : s.playing ? "⏸" : "▶",
+				word: busy || s.loading ? "処理中" : s.playing ? "一時停止" : "再生",
+				label: s.playing ? (s.artist ? s.artist.slice(0, 7) : "再生中") : "BGM開始",
+			};
+		},
+		run: async () => musicToggle(musicState().category || "all"),
+	},
+	"music-toggle": musicCmd("all", "全曲BGM", "🎲", "#f26f23"),
+	"music-long": musicCmd("long", "長尺BGM", "🎯", "#ff5500"),
+	"music-short": musicCmd("short", "短曲", "🎵", "#3399ff"),
+	"music-chill": musicCmd("chill", "チル静か", "☕", "#66bb6a"),
+	"music-upbeat": musicCmd("upbeat", "気分転換", "⚡", "#ffb300"),
+	"music-focus": musicCmd("focus", "作業没入", "🎧", "#ab47bc"),
+	"music-acid": musicCmd("acid-pauli", "Acid Pauli", "🌀", "#8e24aa"),
+	"music-soundtrack": musicCmd("soundtrack", "映画音楽", "🎬", "#e53935"),
+	"music-prev": {
+		view: (_c, busy) => ({ color: "#3a3358", emoji: "⏮", word: busy ? "戻し中" : "前の曲", label: "前へ戻る" }),
+		run: async () => musicPrev(),
+	},
+	"music-next": {
+		view: (_c, busy) => ({ color: "#3a3358", emoji: "⏭", word: busy ? "送り中" : "次の曲", label: "スキップ" }),
+		run: async () => musicNext(),
+	},
+	"music-vol-up": {
+		view: (_c, busy) => {
+			const s = musicState();
+			const vol = s.volume !== undefined ? `${s.volume}%` : "音量+";
+			return { color: "#2d3748", emoji: "🔊", word: busy ? "変更中" : vol, label: "BGM 音量+" };
+		},
+		run: async () => musicVolumeUp(),
+	},
+	"music-vol-down": {
+		view: (_c, busy) => {
+			const s = musicState();
+			const vol = s.volume !== undefined ? `${s.volume}%` : "音量-";
+			return { color: "#2d3748", emoji: "🔉", word: busy ? "変更中" : vol, label: "BGM 音量-" };
+		},
+		run: async () => musicVolumeDown(),
+	},
+	"music-sync": {
+		view: (_c, busy) => {
+			const s = musicState();
+			return {
+				color: "#2a3a48",
+				emoji: busy || s.loading ? "⏳" : "🔄",
+				word: busy || s.loading ? "更新中" : "BGM更新",
+				label: "いいね同期",
+			};
+		},
+		run: async () => musicSync(),
 	},
 	"mute-toggle": {
 		view: () => isMuted() ? { color: "#555", emoji: "🔇", word: "全消音", label: "ON" } : { color: OK, emoji: "🔊", word: "全消音", label: "OFF" },
@@ -299,10 +409,21 @@ export const COMMANDS: Record<string, Cmd> = {
 	"pair-claude-codex": pairCmd(["claude", "codex"]),
 	"pair-claude-hermes": pairCmd(["claude", "hermes"]),
 	"pair-claude-opencode": pairCmd(["claude", "opencode"]),
+	"pair-claude-agy": pairCmd(["claude", "agy"]),
 	"handoff-claude": handoff("claude", "Claude"),
 	"handoff-codex": handoff("codex", "Codex"),
 	"handoff-hermes": handoff("hermes", "Hermes"),
 	"handoff-opencode": handoff("opencode", "OpenCode"),
+	"handoff-agy": handoff("agy", "Antigravity"),
+	"agy-rotate": {
+		view: (_c, busy) => ({
+			color: busy ? BUSY : "#1e3a5f",
+			emoji: "🔄",
+			word: busy ? "切替中" : "AGY切替",
+			label: "次のGoogle垢",
+		}),
+		run: async (c) => void (await ssh(`~/.local/bin/agy-account rotate --pane ${focusedAgent(c.snap)}`)),
+	},
 	// 役割名で引き継ぐ(roles.json の先頭の agent が起動する)
 	"handoff-builder": handoff("builder", "Builder"),
 	"handoff-review-editor": handoff("review-editor", "Review"),
@@ -344,6 +465,28 @@ export const COMMANDS: Record<string, Cmd> = {
 		run: async () => void (await ssh("~/.local/bin/herdr plugin action invoke herdr-navigator.open")),
 	},
 	"q-continue": quick("⏩", "続けて", "続けて"),
+	"q-queue": quick("📚", "残りをキューへ", "今の会話で既に合意した未完了作業を優先順位順に、Herdr の作業キューへ登録してください。AUTODRIVE.md の『合意済みの作業を順に進める』を読み、各タスクの title・prompt・cwd・実際に実行できる checks を JSON ファイルにまとめ、herdr-drive queue-add --task-file で追加してください。AI の追加提案だけの仕事、既に完了した仕事、本人の新しい判断が必要な仕事は登録しないでください。今の作業と重複して実装を起動せず、登録したタスクと保留理由を簡潔に報告してください。"),
+	"drive-away": {
+		view: (c, busy) => ({ color: busy ? BUSY : c.drive?.mode === "away" ? OK : BASE, emoji: "🌙",
+			word: busy ? "受付中" : c.drive?.mode === "away" ? `残り${c.drive.remaining_minutes}分` : "60分離席",
+			label: c.drive?.mode === "away" ? "押して通常運転へ" : "5分ごとに巡回" }),
+		run: async (c) => void (await driveCommand(c.drive?.mode === "away" ? "return" : "away")),
+	},
+	"drive-toggle": {
+		view: (c, busy) => ({ color: busy ? BUSY : !c.drive || c.drive.last_error ? NG : c.drive.enabled ? OK : BASE,
+			emoji: "🚦", word: busy ? "切替中" : !c.drive ? "接続確認" : c.drive.enabled ? "自動運転 ON" : "自動運転 OFF",
+			label: !c.drive ? "状態を取得できず" : c.drive.last_error ? "運転エラーあり" : c.drive.enabled ? "押して巡回停止" : "押して巡回再開" }),
+		run: async () => void (await driveCommand("toggle")),
+	},
+	"drive-report": {
+		view: (_c, busy) => ({ color: busy ? BUSY : BASE, emoji: "📋", word: busy ? "取得中" : "帰席レポート", label: "変更・検証・必要な判断" }),
+		run: async () => {
+			const text = await fetchDriveReport();
+			const path = `${tmpdir()}/herdr-return-report.md`;
+			writeFileSync(path, text, { mode: 0o600 });
+			await run("/usr/bin/open", ["-t", path]);
+		},
+	},
 	// 使用上限で止まったエージェントを見つけると赤く点滅する。押すと、もう一方(claude↔codex)へ引き継ぐ。自動では引き継がない
 	"limit-handoff": {
 		view: (c, busy) => {

@@ -2,7 +2,7 @@ import type { Status } from "./herdr";
 import { ICONS } from "./icons";
 
 const COLOR: Record<Status, string> = {
-	blocked: "#e5484d",
+	blocked: "#7c3aed", // 紫 = 確認待ち(赤は GPU 高温用)
 	working: "#f5c542",
 	done: "#7be0b0",
 	idle: "#3b82f6",
@@ -87,3 +87,46 @@ export const tile = (color: string, emoji: string, word: string, label: string) 
 			(emoji.startsWith("<") ? emoji : `<text x="72" y="104" font-size="64" font-family="Apple Color Emoji" text-anchor="middle">${emoji}</text>`) +
 			`<text x="72" y="136" font-size="${label.length > 10 ? 15 : 20}" font-family="Hiragino Sans,Helvetica,sans-serif" font-weight="600" text-anchor="middle" fill="#fff">${esc(label)}</text></svg>`,
 	);
+
+function formatRemain(seconds?: number): string {
+	if (!seconds || seconds <= 0) return "";
+	const s = Math.round(seconds);
+	const h = Math.floor(s / 3600);
+	const m = Math.floor((s % 3600) / 60);
+	const sec = s % 60;
+	if (h > 0) return `-${h}h${m > 0 ? `${m}m` : ""}`;
+	return `-${m}:${sec.toString().padStart(2, "0")}`;
+}
+
+export function renderNowPlaying(opts: { track: string; artist?: string; playing: boolean; loading: boolean; remaining?: number }): string {
+	const { track, artist, playing, loading, remaining } = opts;
+	if (!playing && !loading && !track) {
+		return tile("#221d30", "🎵", "BGM 停止中", "SoundCloud");
+	}
+	const statusColor = playing ? "#f26f23" : loading ? "#d97706" : "#888";
+	const remainStr = formatRemain(remaining);
+	const topText = loading ? "⏳ 読込中" : playing ? (remainStr ? `🎵 残り ${remainStr}` : "🎵 再生中") : "⏸ 一時停止";
+
+	const titleText = track || "タイトル不明";
+	const artistText = artist ? `${artist}` : "";
+
+	const line1 = clip(titleText, 12);
+	const line2 = titleText.length > 12 ? clip(titleText.slice(12), 12) : "";
+
+	return toDataUri(
+		`<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144">` +
+		`<rect width="144" height="144" fill="#140f20"/>` +
+		`<rect x="0" y="0" width="144" height="5" fill="${statusColor}"/>` +
+		`<text x="72" y="24" font-size="14" font-family="Hiragino Sans,Helvetica,sans-serif" font-weight="800" text-anchor="middle" fill="${statusColor}">${esc(topText)}</text>` +
+		(line2
+			? `<text x="72" y="52" font-size="16" font-family="Hiragino Sans,Helvetica,sans-serif" font-weight="900" text-anchor="middle" fill="#ffffff">${esc(line1)}</text>` +
+			  `<text x="72" y="74" font-size="15" font-family="Hiragino Sans,Helvetica,sans-serif" font-weight="800" text-anchor="middle" fill="#eeeeee">${esc(line2)}</text>`
+			: `<text x="72" y="66" font-size="20" font-family="Hiragino Sans,Helvetica,sans-serif" font-weight="900" text-anchor="middle" fill="#ffffff">${esc(line1)}</text>`
+		) +
+		`<rect x="16" y="88" width="112" height="2" fill="${statusColor}" opacity="0.4"/>` +
+		`<text x="72" y="112" font-size="16" font-family="Hiragino Sans,Helvetica,sans-serif" font-weight="800" text-anchor="middle" fill="#ff9944">${esc(clip(artistText, 12))}</text>` +
+		`<text x="72" y="132" font-size="11" font-family="Helvetica,sans-serif" font-weight="600" text-anchor="middle" fill="#888899">押して開く ↗</text>` +
+		`</svg>`
+	);
+}
+

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import vm from "node:vm";
@@ -18,13 +19,16 @@ function fixture(initialPlaying = false) {
 			"./power": { isSleeping: () => sleeping }, "./sound": { isMuted: () => muted },
 		})[name],
 		fetch: async (url) => {
-			const route = new URL(url).pathname;
+			const u = new URL(url);
+			const route = u.pathname;
+			const fullRoute = u.pathname + u.search;
 			if (gate) { const wait = gate; gate = undefined; await wait; }
 			if (fail) throw Error("offline");
-			routes.push(route);
+			routes.push(fullRoute);
 			if (route === "/play") { playing = true; loading = false; }
 			if (route === "/pause") { playing = false; loading = false; }
-			return { json: async () => ({ playing, loading, track: playing ? "liked track" : "", error: "" }) };
+			const cat = u.searchParams.get("category") || "all";
+			return { json: async () => ({ playing, loading, category: cat, track: playing ? "liked track" : "", error: "" }) };
 		},
 	});
 	return { ...module.exports, routes, files, launches,
@@ -91,3 +95,59 @@ test("network failures are contained and playback can recover", async () => {
 	f.fail(false); f.advance(30_000); await f.musicTick();
 	assert.equal(f.musicState().playing, true); assert.equal(f.musicState().error, "");
 });
+
+test("category playback, switching and toggling pause", async () => {
+	const f = fixture();
+	// 長尺BGMを開始
+	await f.musicToggle("long");
+	assert.equal(f.musicState().playing, true);
+	assert.equal(f.musicState().category, "long");
+	assert.ok(f.routes.some((r) => r.includes("/play?category=long")));
+
+	// チルに切り替え (再生は継続したままカテゴリ切替)
+	await f.musicToggle("chill");
+	assert.equal(f.musicState().playing, true);
+	assert.equal(f.musicState().category, "chill");
+	assert.ok(f.routes.some((r) => r.includes("/play?category=chill")));
+
+	// 同じチルを再度押すと一時停止
+	await f.musicToggle("chill");
+	assert.equal(f.musicState().playing, false);
+});
+
+test("musicNext skips to next track", async () => {
+	const f = fixture();
+	await f.musicToggle();
+	await f.musicNext();
+	assert.ok(f.routes.some((r) => r.startsWith("/next")));
+});
+
+test("musicPrev returns to previous track", async () => {
+	const f = fixture();
+	await f.musicToggle();
+	await f.musicPrev();
+	assert.ok(f.routes.some((r) => r.startsWith("/prev")));
+});
+
+test("duckProcess triggers /duck on start and /duck/stop on exit", async () => {
+	const f = fixture();
+	await f.musicToggle();
+	const child = new EventEmitter();
+	f.duckProcess(child);
+	await new Promise((r) => setImmediate(r));
+	assert.ok(f.routes.some((r) => r.startsWith("/duck")));
+
+	child.emit("close");
+	await new Promise((r) => setImmediate(r));
+	assert.ok(f.routes.includes("/duck/stop"));
+});
+
+test("musicDuck with duration passes duration parameter", async () => {
+	const f = fixture();
+	await f.musicToggle();
+	await f.musicDuck(2.5);
+	assert.ok(f.routes.includes("/duck?duration=2.5"));
+});
+
+
+

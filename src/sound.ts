@@ -14,7 +14,17 @@ let s: S = { muted: false, tick: false, clock: "grandfather", volume: 0.3, think
 let at = 0;
 let proc: ChildProcess | undefined;
 let playing = "";
+let clockHour = new Date().setMinutes(0, 0, 0);
 const sounds = new Set<ChildProcess>();
+let duckHook: ((child: ChildProcess) => void) | undefined;
+
+export function registerDuckHook(hook: (child: ChildProcess) => void) {
+	duckHook = hook;
+}
+export function duckSound(child: ChildProcess | undefined): ChildProcess | undefined {
+	if (child && duckHook) duckHook(child);
+	return child;
+}
 
 export function loadSound(force = false): S {
 	if (!force && Date.now() - at < 15_000) return s;
@@ -85,8 +95,16 @@ export function stopTick() {
 
 // want = 鳴らすべきか。sox の repeat は切れ目のない繰り返し(拍がずれない)
 export function tick(want: boolean) {
+	const now = new Date();
+	const hour = new Date(now).setMinutes(0, 0, 0);
+	const newHour = hour > clockHour;
+	clockHour = Math.max(clockHour, hour); // 消音・時計OFF中の正時を後から鳴らさない。
 	const c = loadSound();
 	if (!want || !c.tick || isMuted()) return stopTick();
+	const cuckoo = `${DIR}/clock/cuckoo.wav`;
+	if (newHour && now.getMinutes() === 0 && existsSync(cuckoo)) {
+		duckSound(spawnSound("/usr/bin/afplay", ["-v", "0.85", cuckoo]));
+	}
 	if (proc && playing === c.clock) return;
 	stopTick();
 	// 再起動前の子プロセスが残っていても、時計は1つだけにする。
