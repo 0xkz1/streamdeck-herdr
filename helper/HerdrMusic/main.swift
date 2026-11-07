@@ -11,6 +11,10 @@ final class MusicPlayer: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     var remaining: [String] = []
     var catalogTracks: [[String: Any]] = []
     var currentCategory = "all"
+    var currentRatingFilter = "all"
+    var ratings = MusicRatings()
+    var ratingAssignedThisPlay = false
+    var consecutiveErrors = 0
     var waitingForNext = false
     var trackIndex = -1
     var scanIdle = 0
@@ -90,9 +94,17 @@ final class MusicPlayer: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { data, _, _, _ in
                 let first = String(data: data ?? Data(), encoding: .utf8)?.components(separatedBy: "\r\n").first ?? ""
                 let route = first.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
-                let state = self?.handle(route) ?? [:]
-                let body = (try? JSONSerialization.data(withJSONObject: state)) ?? Data("{}".utf8)
-                var response = Data("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8)
+                let method = first.split(separator: " ").first.map(String.init) ?? "GET"
+                let body: Data
+                let contentType: String
+                if route == "/ratings", let file = Bundle.main.url(forResource: "ratings", withExtension: "html"), let html = try? Data(contentsOf: file) {
+                    body = html; contentType = "text/html; charset=utf-8"
+                } else {
+                    let state = self?.handle(route, method: method) ?? [:]
+                    body = (try? JSONSerialization.data(withJSONObject: state)) ?? Data("{}".utf8)
+                    contentType = "application/json"
+                }
+                var response = Data("HTTP/1.1 200 OK\r\nContent-Type: \(contentType)\r\nCache-Control: no-store\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8)
                 response.append(body)
                 connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
             }
@@ -115,22 +127,31 @@ final class MusicPlayer: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         applyCategory(currentCategory)
     }
 
-    func applyCategory(_ cat: String) {
+    @discardableResult
+    func applyCategory(_ cat: String, ratingFilter: String? = nil) -> Bool {
+        let filter = ratingFilter ?? currentRatingFilter
+        guard MusicRatings.filters.contains(filter) else { errorText = "評価の絞り込みが不正です"; return false }
+        let entries: [String: MusicRating]
+        do { entries = try ratings.load() }
+        catch { errorText = "評価を読み込めません: \(error.localizedDescription)"; return false }
         currentCategory = cat
-        guard !catalogTracks.isEmpty else { return }
-        let filtered: [String]
-        if cat == "all" || cat.isEmpty {
-            filtered = catalogTracks.compactMap { $0["url"] as? String }
-        } else {
-            let matched = catalogTracks.filter {
-                (($0["categories"] as? [String]) ?? []).contains(cat)
-            }.compactMap { $0["url"] as? String }
-            filtered = matched.isEmpty ? catalogTracks.compactMap { $0["url"] as? String } : matched
+        currentRatingFilter = filter
+        guard !catalogTracks.isEmpty else {
+            if filter != "all" { pause(); errorText = "BGM更新で曲一覧を取得してください"; return false }
+            return true
         }
+        let filtered = catalogTracks.filter {
+            let u = $0["url"] as? String ?? ""
+            return (cat == "all" || cat.isEmpty || (($0["categories"] as? [String]) ?? []).contains(cat)) &&
+                   MusicRatings.matches(entries[u], filter: filter)
+        }.compactMap { $0["url"] as? String }
         tracks = filtered
-        remaining = tracks.shuffled()
+        remaining = buildQueue(from: tracks)
         trackIndex = -1
         scanned = true
+        if tracks.isEmpty { pause(); errorText = "該当する曲はありません"; return false }
+        errorText = ""
+        return true
     }
 
     func loadPlayer(_ source: String) {
@@ -195,11 +216,14 @@ final class MusicPlayer: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             self.scanning = false
             guard let text = value as? String, let data = text.data(using: .utf8), let urls = try? JSONSerialization.jsonObject(with: data) as? [String] else { return }
             let before = self.tracks.count
+            let entries = (try? self.ratings.load()) ?? [:]
             for url in urls where URL(string: url)?.host == "soundcloud.com" && !self.tracks.contains(url) {
-                self.tracks.append(url)
-                self.remaining.append(url)
+                if MusicRatings.matches(entries[url], filter: self.currentRatingFilter) {
+                    self.tracks.append(url)
+                    self.remaining.append(url)
+                }
             }
-            if self.tracks.count != before { self.remaining.shuffle() }
+            if self.tracks.count != before { self.remaining = self.buildQueue(from: self.tracks) }
             self.scanIdle = self.tracks.count == before ? self.scanIdle + 1 : 0
             if !self.tracks.isEmpty && self.scanIdle >= 6 { self.scanned = true }
             if self.trackIndex < 0 && !self.tracks.isEmpty && (self.wanted || self.scanned) { self.selectTrack() }
@@ -207,13 +231,41 @@ final class MusicPlayer: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         }
     }
 
+    func buildQueue(from trackList: [String]) -> [String] {
+        let entries = (try? ratings.load()) ?? [:]
+        let unrated = trackList.filter { (entries[$0]?.rating ?? 0) == 0 }.shuffled()
+        let rated = trackList.filter { (entries[$0]?.rating ?? 0) > 0 }.shuffled()
+        // remaining.popLast() は末尾から取り出すため、[rated] + [unrated] で未評価曲が先に取り出される
+        return rated + unrated
+    }
+
+    func finishCurrentTrack() {
+        guard hasPlayed, !currentUrl.isEmpty else { return }
+        if !ratingAssignedThisPlay {
+            if let entry = try? ratings.load()[currentUrl], entry.rating == 2, (entry.remainingPlays ?? 1) > 0 {
+                try? ratings.consumeReplay(url: currentUrl)
+                if currentRatingFilter == "all" {
+                    tracks.removeAll(where: { $0 == currentUrl })
+                    remaining.removeAll(where: { $0 == currentUrl })
+                }
+            }
+        }
+    }
+
     func selectTrack() {
+        finishCurrentTrack()
+        ratingAssignedThisPlay = false
         if remaining.isEmpty {
-            remaining = tracks.shuffled()
+            remaining = buildQueue(from: tracks)
             // 周回の境目でも同じ曲を続けない。
-            if tracks.count > 1 && trackIndex >= 0 && remaining.last == tracks[trackIndex],
-               let other = remaining.firstIndex(where: { $0 != tracks[trackIndex] }) {
-                remaining.swapAt(other, remaining.count - 1)
+            if tracks.count > 1 && trackIndex >= 0 && remaining.last == tracks[trackIndex] {
+                let entries = (try? ratings.load()) ?? [:]
+                let isLastUnrated = (entries[remaining.last!]?.rating ?? 0) == 0
+                if let other = remaining.indices.reversed().first(where: { idx in
+                    remaining[idx] != tracks[trackIndex] && ((entries[remaining[idx]]?.rating ?? 0) == 0) == isLastUnrated
+                }) ?? remaining.indices.first(where: { remaining[$0] != tracks[trackIndex] }) {
+                    remaining.swapAt(other, remaining.count - 1)
+                }
             }
         }
         guard let source = remaining.popLast(), let index = tracks.firstIndex(of: source) else { return }
@@ -235,6 +287,7 @@ final class MusicPlayer: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     }
 
     func nextTrack(forcePlay: Bool = false) {
+        if scanned && tracks.isEmpty { pause(); errorText = "該当する曲はありません"; return }
         if forcePlay {
             wanted = !sleeping
             issued = false
@@ -254,7 +307,10 @@ final class MusicPlayer: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             web.evaluateJavaScript("widget.seekTo(0)", completionHandler: nil)
             return
         }
-        let previous = history.removeLast()
+        finishCurrentTrack()
+        ratingAssignedThisPlay = false
+        history = history.filter { tracks.contains($0) }
+        guard let previous = history.popLast() else { return }
         if let idx = tracks.firstIndex(of: previous) {
             trackIndex = idx
         }
@@ -283,7 +339,13 @@ final class MusicPlayer: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let data = message.body as? [String: Any], let type = data["type"] as? String else { return }
         if type == "ready" { ready = true; advance() }
-        if type == "play" { playing = true; hasPlayed = true; if !wanted || sleeping { pause() } }
+        if type == "play" {
+            playing = true
+            hasPlayed = true
+            consecutiveErrors = 0
+            errorText = ""
+            if !wanted || sleeping { pause() }
+        }
         if type == "pause" { playing = false }
         if type == "finish" { nextTrack() }
         if type == "track" {
@@ -292,7 +354,17 @@ final class MusicPlayer: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             if let d = data["duration"] as? Double, d > 0 { duration = d }
         }
         if type == "progress" { position = data["position"] as? Double ?? 0 }
-        if type == "error" { errorText = "SoundCloudのプレイヤーで再生を確認してください"; wanted = false }
+        if type == "error" {
+            consecutiveErrors += 1
+            if consecutiveErrors < 4 && (wanted || playing) {
+                // 再生不能な曲（著作権制限・埋め込み無効等）をスキップして次の曲へ自動進行
+                remaining.removeAll(where: { $0 == currentUrl })
+                nextTrack(forcePlay: true)
+            } else {
+                errorText = "SoundCloudのプレイヤーで再生を確認してください"
+                wanted = false
+            }
+        }
     }
 
     func pause() { wanted = false; web.evaluateJavaScript("widget.pause()", completionHandler: nil) }
@@ -327,12 +399,56 @@ final class MusicPlayer: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         web.evaluateJavaScript("window.setPlayerVolume && window.setPlayerVolume(\(target), \(durationMs))", completionHandler: nil)
     }
 
-    func handle(_ route: String) -> [String: Any] {
+    func handle(_ route: String, method: String = "GET") -> [String: Any] {
         let components = URLComponents(string: route)
         let path = components?.path ?? route
         let queryCategory = components?.queryItems?.first(where: { $0.name == "category" })?.value
+        let queryRating = components?.queryItems?.first(where: { $0.name == "rating" })?.value
 
-        if path == "/open" {
+        if path == "/ratings/data" {
+            do {
+                let entries = try ratings.load()
+                var list = catalogTracks
+                let known = Set(list.compactMap { $0["url"] as? String })
+                for (url, entry) in entries where !known.contains(url) {
+                    list.append(["url": url, "title": entry.title, "artist": entry.artist, "categories": ["all"]])
+                }
+                return ["tracks": list.map { info -> [String: Any] in
+                    var item = info
+                    let url = info["url"] as? String ?? ""
+                    let entry = entries[url]
+                    let r = entry?.rating ?? 0
+                    item["rating"] = r
+                    item["remainingPlays"] = entry?.remainingPlays ?? (r == 2 ? 1 : 0)
+                    return item
+                }]
+            } catch { return ["error": "評価を読み込めません: \(error.localizedDescription)"] }
+        } else if path == "/ratings/open" {
+            NSWorkspace.shared.open(URL(string: "http://127.0.0.1:18869/ratings")!)
+        } else if path == "/rate" {
+            guard method == "POST", let value = components?.queryItems?.first(where: { $0.name == "value" })?.value.flatMap(Int.init), (0...5).contains(value),
+                  let expected = components?.queryItems?.first(where: { $0.name == "url" })?.value,
+                  !currentUrl.isEmpty, expected == currentUrl, hasPlayed else {
+                return ["error": "再生曲を確認して、もう一度評価を押してください"]
+            }
+            do {
+                if value == 2 && ratingAssignedThisPlay {
+                    try ratings.save(url: currentUrl, value: value, title: track, artist: artist, remainingPlays: 1)
+                } else {
+                    try ratings.save(url: currentUrl, value: value, title: track, artist: artist)
+                }
+                ratingAssignedThisPlay = true
+                // 評価変更を次の曲から絞り込みに反映。今の曲は途中で切らない。
+                let entries = try ratings.load()
+                remaining = remaining.filter { MusicRatings.matches(entries[$0], filter: currentRatingFilter) }
+                tracks = catalogTracks.filter {
+                    let u = $0["url"] as? String ?? ""
+                    return (currentCategory == "all" || (($0["categories"] as? [String]) ?? []).contains(currentCategory)) &&
+                           MusicRatings.matches(entries[u], filter: currentRatingFilter)
+                }.compactMap { $0["url"] as? String }
+                trackIndex = tracks.firstIndex(of: currentUrl) ?? -1
+            } catch { return ["error": "評価を保存できません: \(error.localizedDescription)"] }
+        } else if path == "/open" {
             if !currentUrl.isEmpty, let u = URL(string: currentUrl) {
                 NSWorkspace.shared.open(u)
             } else {
@@ -348,11 +464,13 @@ final class MusicPlayer: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 catParam = nil
             }
 
-            let catChanged = catParam != nil && catParam != currentCategory
-            if catChanged, let newCat = catParam {
-                applyCategory(newCat)
+            let catChanged = (catParam != nil && catParam != currentCategory) || (queryRating != nil && queryRating != currentRatingFilter)
+            if catChanged || (tracks.isEmpty && currentRatingFilter != "all") {
+                guard applyCategory(catParam ?? currentCategory, ratingFilter: queryRating) else { return ["error": errorText] }
                 selectTrack()
-            } else if trackIndex < 0 && !tracks.isEmpty {
+            } else if (trackIndex < 0 || !errorText.isEmpty) && !tracks.isEmpty {
+                errorText = ""
+                consecutiveErrors = 0
                 selectTrack()
             }
 
@@ -361,16 +479,21 @@ final class MusicPlayer: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             hasPlayed = false
             requestedAt = Date()
             errorText = ""
+            consecutiveErrors = 0
             advance()
         } else if path == "/pause" {
             pause()
         } else if path == "/next" {
+            errorText = ""
+            consecutiveErrors = 0
             nextTrack(forcePlay: true)
         } else if path == "/prev" {
+            errorText = ""
+            consecutiveErrors = 0
             prevTrack()
         } else if path.starts(with: "/category/") {
             let newCat = String(path.dropFirst("/category/".count))
-            applyCategory(newCat)
+            guard applyCategory(newCat) else { return ["error": errorText] }
             if wanted {
                 selectTrack()
             }
@@ -402,6 +525,12 @@ final class MusicPlayer: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         let posSec = position / 1000.0
         let durSec = duration / 1000.0
         let remSec = max(0, durSec - posSec)
+        let entries: [String: MusicRating]
+        do { entries = try ratings.load() }
+        catch { return ["error": "評価を読み込めません: \(error.localizedDescription)"] }
+        let currentEntry = entries[currentUrl]
+        let currentR = currentEntry?.rating ?? 0
+        let currentRem = currentEntry?.remainingPlays ?? (currentR == 2 ? 1 : 0)
         return [
             "playing": playing,
             "loading": wanted && !hasPlayed && errorText.isEmpty,
@@ -421,6 +550,10 @@ final class MusicPlayer: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             "scanned": scanned,
             "shuffle": true,
             "category": currentCategory,
+            "ratingFilter": currentRatingFilter,
+            "rating": currentR,
+            "remainingPlays": currentRem,
+            "ratedCount": entries.count,
             "error": errorText
         ]
     }
@@ -428,13 +561,27 @@ final class MusicPlayer: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     func advance() {
         if sleeping { if wanted || playing { pause() }; return }
         guard wanted else { return }
-        if !hasPlayed && Date().timeIntervalSince(requestedAt) > 40 { wanted = false; errorText = "SoundCloudのプレイヤーで再生を確認してください"; return }
+        if !hasPlayed && Date().timeIntervalSince(requestedAt) > 40 {
+            consecutiveErrors += 1
+            if consecutiveErrors < 4 && wanted {
+                remaining.removeAll(where: { $0 == currentUrl })
+                nextTrack(forcePlay: true)
+                return
+            }
+            wanted = false
+            errorText = "SoundCloudのプレイヤーで再生を確認してください"
+            return
+        }
         if ready && !issued { issued = true; web.evaluateJavaScript("widget.play()", completionHandler: nil) }
     }
 }
 
+#if MUSIC_TEST
+runMusicRatingsTests()
+#else
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 let player = MusicPlayer()
 app.delegate = player
 app.run()
+#endif

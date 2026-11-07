@@ -4,7 +4,7 @@ import { appendFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } f
 import { tmpdir } from "node:os";
 import { CLOCK_JP, clockName, isMuted, nextClock, thinkOn, tickOn, toggleThink, toggleTick } from "./sound";
 import { ambientEnabled, ambientMode, ambientToggle, ambientUserChange, loadCfg } from "./ambient";
-import { musicNext, musicOpen, musicPrev, musicState, musicSync, musicToggle, musicVolumeDown, musicVolumeUp } from "./music";
+import { currentTrackTags, musicClearTags, musicNext, musicOpen, musicPause, musicPrev, musicRate, musicRatingsOpen, musicState, musicSync, musicToggle, musicToggleTag, musicVolumeDown, musicVolumeUp } from "./music";
 import { renderNowPlaying } from "./render";
 import { CPU_SVG, GPU_SVG, RAM_SVG, SSD_SVG, PATROL_SVG } from "./icons";
 import { driveCommand, fetchDriveReport, type DriveInfo, ssh, startHandoff, cronRun, type PatrolInfo, type LimitInfo, startLimitHandoff, type Usage, type Gpu, type Cpu, type Sys, togglePowerLimit, focusedAgent, keysAgent, paneCmd, promptAgent, repairInfra, uploadShot, type CronInfo, type Infra, type Snapshot } from "./herdr";
@@ -270,7 +270,7 @@ const handoff = (kind: string, label: string): Cmd => ({
 const musicCmd = (category: string, label: string, emoji: string, activeColor: string): Cmd => ({
 	view: (_c, busy) => {
 		const s = musicState();
-		const isCategory = (s.category === category) || (category === "all" && (!s.category || s.category === "all"));
+		const isCategory = ((s.category === category) || (category === "all" && (!s.category || s.category === "all"))) && (!s.ratingFilter || s.ratingFilter === "all");
 		const isPlayingThis = (s.playing || s.loading) && isCategory;
 		let line = "再生";
 		if (s.error && isCategory) {
@@ -295,7 +295,36 @@ const musicCmd = (category: string, label: string, emoji: string, activeColor: s
 	run: async () => musicToggle(category),
 });
 
+const musicTagCmd = (tag: string, label: string, emoji: string, activeColor: string): Cmd => ({
+	view: (_c: Ctx, busy: boolean) => {
+		const hasTag = currentTrackTags().includes(tag);
+		return {
+			color: hasTag ? activeColor : "#30263a",
+			emoji,
+			word: busy ? "保存中" : `${label}${hasTag ? " ✓" : ""}`,
+			label: busy ? "更新中" : (hasTag ? "付与済み" : "押して付与"),
+		};
+	},
+	run: async () => musicToggleTag(tag),
+});
+
 export const COMMANDS: Record<string, Cmd> = {
+	...Object.fromEntries([1, 2, 3, 4, 5].map(value => [`music-rate-${value}`, {
+		view: (_c: Ctx, busy: boolean) => ({ color: musicState().rating === value ? "#ba8526" : "#30263a", emoji: "★", word: `評価 ${value}`, label: busy ? "保存中" : musicState().rating === value ? "保存済み ✓" : "今の曲に付ける" }),
+		run: async () => musicRate(value),
+	}])),
+	...Object.fromEntries(["all", "unrated", "1", "2", "3", "4", "5", "4+"].map(filter => [`music-filter-${filter}`, {
+		view: (_c: Ctx, busy: boolean) => ({ color: (musicState().ratingFilter || "all") === filter ? "#8c6526" : "#30263a", emoji: "🎲", word: filter === "all" ? "全評価" : filter === "unrated" ? "未評価" : filter === "4+" ? "★4以上" : `★${filter}だけ`, label: busy ? "切替中" : "絞って再生" }),
+		run: async () => musicToggle(musicState().category || "all", filter),
+	}])),
+	"music-rate-clear": {
+		view: (_c, busy) => ({ color: "#30263a", emoji: "☆", word: busy ? "解除中" : "評価を消す", label: "今の曲を未評価に" }),
+		run: async () => musicRate(0),
+	},
+	"music-ratings": {
+		view: (_c, busy) => ({ color: "#30263a", emoji: "📋", word: busy ? "開き中" : "評価一覧", label: `${musicState().ratedCount || 0}曲を評価済み` }),
+		run: async () => musicRatingsOpen(),
+	},
 	"music-info": {
 		image: () => {
 			const s = musicState();
@@ -305,6 +334,7 @@ export const COMMANDS: Record<string, Cmd> = {
 				playing: s.playing,
 				loading: s.loading,
 				remaining: s.remaining,
+				rating: s.rating,
 			});
 		},
 		view: (_c, busy) => {
@@ -328,7 +358,7 @@ export const COMMANDS: Record<string, Cmd> = {
 				label: s.playing ? (s.artist ? s.artist.slice(0, 7) : "再生中") : "BGM開始",
 			};
 		},
-		run: async () => musicToggle(musicState().category || "all"),
+		run: async () => musicToggle(musicState().category || "all", musicState().ratingFilter || "all"),
 	},
 	"music-toggle": musicCmd("all", "全曲BGM", "🎲", "#f26f23"),
 	"music-long": musicCmd("long", "長尺BGM", "🎯", "#ff5500"),
@@ -338,6 +368,25 @@ export const COMMANDS: Record<string, Cmd> = {
 	"music-focus": musicCmd("focus", "作業没入", "🎧", "#ab47bc"),
 	"music-acid": musicCmd("acid-pauli", "Acid Pauli", "🌀", "#8e24aa"),
 	"music-soundtrack": musicCmd("soundtrack", "映画音楽", "🎬", "#e53935"),
+	"music-piano": musicCmd("piano", "ピアノ", "🎹", "#4a90e2"),
+	"music-strings": musicCmd("guitar-strings", "ギター弦", "🎸", "#e67e22"),
+	"music-guitar": musicCmd("guitar", "ギター", "🎸", "#d97706"),
+	"music-violin": musicCmd("strings", "弦楽器", "🎻", "#8b5cf6"),
+	"music-oriental": musicCmd("oriental", "オリエント", "🕌", "#0d9488"),
+	"music-tag-piano": musicTagCmd("piano", "ピアノ", "🎹", "#4a90e2"),
+	"music-tag-guitar": musicTagCmd("guitar", "ギター", "🎸", "#d97706"),
+	"music-tag-strings": musicTagCmd("strings", "弦楽器", "🎻", "#8b5cf6"),
+	"music-tag-oriental": musicTagCmd("oriental", "オリエント", "🕌", "#0d9488"),
+	"music-tag-chill": musicTagCmd("chill", "チル", "☕", "#66bb6a"),
+	"music-tag-clear": {
+		view: (_c, busy) => ({
+			color: "#30263a",
+			emoji: "🏷️",
+			word: busy ? "解除中" : "タグ解除",
+			label: "曲のタグ全解除",
+		}),
+		run: async () => musicClearTags(),
+	},
 	"music-prev": {
 		view: (_c, busy) => ({ color: "#3a3358", emoji: "⏮", word: busy ? "戻し中" : "前の曲", label: "前へ戻る" }),
 		run: async () => musicPrev(),

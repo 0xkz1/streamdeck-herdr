@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Herdr — 音楽の評価</title>
+<style>
+:root{color-scheme:dark light;font-family:system-ui,sans-serif}body{max-width:1100px;margin:40px auto;padding:0 24px}h1{font-size:28px}p{line-height:1.7}label{display:inline-block;margin:0 16px 16px 0}select,input,button{font:inherit;padding:9px;border:1px solid #8888;border-radius:6px}button{cursor:pointer}button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid #d49b37;outline-offset:3px}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:12px 8px;border-bottom:1px solid #8884}td:first-child{white-space:nowrap;color:#b87d18}a{color:inherit}#message{min-height:1.7em}#now{padding:16px;border:1px solid #8885;border-radius:8px;margin-bottom:24px}@media(max-width:600px){body{margin-top:24px;padding:0 12px}th:nth-child(3),td:nth-child(3){display:none}td,th{padding:10px 4px}}
+</style>
+<h1>音楽の評価</h1>
+<p>聴いた曲に★を付けて、自分の好みを残す。★1は通常再生から除外、★2はあと1回再生して据え置きなら除外されます。SoundCloudのライクからも外したい場合は、曲名リンクを開いてハートを解除してください。</p>
+<section id="now" aria-label="再生中の曲"><p id="current">曲を確認中…</p><div id="stars"></div></section>
+<label>評価 <select id="filter"><option value="all">すべて</option><option value="unrated">未評価</option><option value="1">★1</option><option value="2">★2</option><option value="3">★3</option><option value="4">★4</option><option value="5">★5</option><option value="4+">★4以上</option></select></label>
+<label>カテゴリ <select id="category"><option value="all">全曲</option></select></label>
+<label>曲・作者 <input id="search" type="search" placeholder="検索"></label>
+<button id="refresh">更新</button> <button id="export">表示中の曲をCSV保存</button>
+<p id="message" role="status" aria-live="polite"></p>
+<table><thead><tr><th scope="col">評価</th><th scope="col">曲名</th><th scope="col">作者</th></tr></thead><tbody id="rows"></tbody></table>
+<script>
+const $ = id => document.getElementById(id);
+let tracks = [], shown = [], current = {};
+const names = {long:'長尺BGM',short:'短曲',chill:'チル・静か',upbeat:'気分転換',focus:'作業没入','acid-pauli':'Acid Pauli',soundtrack:'映画音楽'};
+async function request(route, method='GET') {
+ const r = await fetch(route,{method}); if(!r.ok) throw Error('通信に失敗しました');
+ const data = await r.json(); if(data.error) throw Error(data.error); return data;
+}
+function render() {
+ const filter=$('filter').value, category=$('category').value, query=$('search').value.toLowerCase();
+ shown=tracks.filter(t => (filter==='all'||(filter==='unrated'?t.rating===0:filter==='4+'?t.rating>=4:t.rating===Number(filter))) && (category==='all'||(t.categories||[]).includes(category)) && `${t.title} ${t.artist}`.toLowerCase().includes(query)).sort((a,b)=>b.rating-a.rating||String(a.title).localeCompare(String(b.title),'ja'));
+ $('rows').replaceChildren(...shown.map(t=>{
+  const row=document.createElement('tr');
+  let ratingLabel = '未評価';
+  if (t.rating === 1) ratingLabel = '★1 (除外)';
+  else if (t.rating === 2) ratingLabel = (t.remainingPlays === 0) ? '★2 (除外)' : '★2 (あと1回)';
+  else if (t.rating > 0) ratingLabel = `★${t.rating}`;
+  for(const value of [ratingLabel,t.title||'タイトル不明',t.artist||'']) {
+   const cell=document.createElement('td');cell.textContent=value;row.append(cell);
+  }
+  try { const url=new URL(t.url); if(url.protocol==='https:'&&url.hostname==='soundcloud.com') {const a=document.createElement('a');a.href=url.href;a.target='_blank';a.rel='noopener';a.textContent=t.title||'タイトル不明';row.children[1].replaceChildren(a);} }catch{}
+  return row;
+ }));
+ $('message').textContent=`${shown.length}曲 · 評価済み ${tracks.filter(t=>t.rating>0).length}曲`;
+}
+async function refresh() {
+ const data=await request('/ratings/data'); tracks=data.tracks;
+ const previous=$('category').value;
+ $('category').replaceChildren(new Option('全曲','all'),...Array.from(new Set(tracks.flatMap(t=>t.categories||[]))).filter(c=>c!=='all').map(c=>new Option(names[c]||c,c)));
+ $('category').value=previous; if(!$('category').value) $('category').value='all';
+ current=await (await fetch('/status')).json();
+ let currentRatingLabel = current.rating ? `★${current.rating}` : '未評価';
+ if (current.rating === 1) currentRatingLabel += ' (除外)';
+ else if (current.rating === 2) currentRatingLabel += (current.remainingPlays === 0 ? ' (除外)' : ' (あと1回)');
+ $('current').textContent=current.track?`${current.playing?'再生中':'一時停止'}：${current.track} / ${current.artist||''} · ${currentRatingLabel}`:'再生中の曲はありません';
+ render(); if(current.error) $('message').textContent=current.error;
+}
+for(let value=1;value<=5;value++) {
+ const button=document.createElement('button');button.textContent=`★${value}`;button.setAttribute('aria-label',`今の曲を${value}に評価`);button.onclick=()=>rate(value);$('stars').append(button,' ');
+}
+const clear=document.createElement('button');clear.textContent='評価を消す';clear.onclick=()=>rate(0);$('stars').append(clear);
+async function rate(value) {
+ try { if(!current.url) throw Error('再生中の曲がありません'); await request(`/rate?value=${value}&url=${encodeURIComponent(current.url)}`,'POST');await refresh();$('message').textContent=value?`★${value}を保存しました`:'評価を解除しました'; }
+ catch(e){$('message').textContent=e.message;}
+}
+for(const id of ['filter','category','search']) $(id).addEventListener('input',render);
+$('refresh').onclick=()=>refresh().catch(e=>$('message').textContent=e.message);
+$('export').onclick=()=>{
+ const quote=v=>`"${String(v??'').replace(/^[=+@\-\t\r]/,"'").replaceAll('"','""')}"`;
+ const csv=[['評価','曲名','作者','URL'],...shown.map(t=>[t.rating||'',t.title,t.artist,t.url])].map(row=>row.map(quote).join(',')).join('\r\n');
+ const url=URL.createObjectURL(new Blob(['\ufeff',csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='herdr-music-ratings.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+};
+refresh().catch(e=>$('message').textContent=e.message);
+</script>
+</html>

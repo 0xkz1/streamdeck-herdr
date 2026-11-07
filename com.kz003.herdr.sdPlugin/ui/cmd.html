@@ -7,6 +7,14 @@
 <body>
 <sdpi-item label="機能">
   <sdpi-select setting="cmd" placeholder="選んでください">
+    <optgroup label="シーンパッケージ">
+      <option value="scene-morning">☀️ 朝モード (ブリーフ＋元気BGM＋ノート準備)</option>
+      <option value="scene-night">🌙 夜リラックス (暖色Hue＋日報追記＋チルBGM)</option>
+      <option value="scene-focus">🎯 集中没入 (集中光＋没入BGM＋ペイン幅調整)</option>
+      <option value="scene-meeting">🎙️ 会議・通話 (消音＋字幕録音＋メモ準備)</option>
+      <option value="scene-away">🚪 離席運転 (常夜灯＋60分自動巡回)</option>
+      <option value="scene-sunset">☕ 夕暮れ一服 (夕日Hue＋サントラ＋状況整理)</option>
+    </optgroup>
     <optgroup label="BGM">
       <option value="music-info">ℹ️ 再生中の曲 (曲名・作者・残り時間 / 押して開く)</option>
       <option value="music-play">⏯ 再生 / 一時停止 (トグル)</option>
@@ -16,6 +24,11 @@
       <option value="music-vol-down">🔉 BGM 音量 -10%</option>
       <option value="music-acid">🌀 Acid Pauli (DJ Sets & Mixes)</option>
       <option value="music-soundtrack">🎬 映画音楽 (Soundtrack / OST)</option>
+      <option value="music-piano">🎹 ピアノ (ソロ・協奏曲)</option>
+      <option value="music-strings">🎸 ギター・弦楽器 (ギター・バイオリン等)</option>
+      <option value="music-guitar">🎸 ギター (アコギ・クラシック)</option>
+      <option value="music-violin">🎻 弦楽器 (バイオリン・チェロ・ハープ)</option>
+      <option value="music-oriental">🕌 オリエンタル (東洋・中東・民族音楽)</option>
       <option value="music-long">🎯 長尺BGM (作業用Mix・セット)</option>
       <option value="music-short">🎵 短曲 (10分未満)</option>
       <option value="music-chill">☕ チル・静か (Ambient / Lo-Fi)</option>
@@ -24,9 +37,35 @@
       <option value="music-toggle">🎲 全曲BGM (いいね全曲シャッフル)</option>
       <option value="music-sync">🔄 SoundCloud いいね更新</option>
     </optgroup>
+    <optgroup label="楽器・ジャンルタグ付け">
+      <option value="music-tag-piano">🎹 ピアノタグを付ける (トグル)</option>
+      <option value="music-tag-guitar">🎸 ギタータグを付ける (トグル)</option>
+      <option value="music-tag-strings">🎻 弦楽器タグを付ける (トグル)</option>
+      <option value="music-tag-oriental">🕌 オリエントタグを付ける (トグル)</option>
+      <option value="music-tag-chill">☕ チルタグを付ける (トグル)</option>
+      <option value="music-tag-clear">🏷️ 今の曲の楽器タグを全解除</option>
+    </optgroup>
+    <optgroup label="曲の評価">
+      <option value="music-rate-1">★1 今の曲を評価</option>
+      <option value="music-rate-2">★2 今の曲を評価</option>
+      <option value="music-rate-3">★3 今の曲を評価</option>
+      <option value="music-rate-4">★4 今の曲を評価</option>
+      <option value="music-rate-5">★5 今の曲を評価</option>
+      <option value="music-rate-clear">☆ 今の曲の評価を解除</option>
+      <option value="music-ratings">📋 評価一覧・CSV保存</option>
+      <option value="music-filter-all">🎲 全評価で絞って再生</option>
+      <option value="music-filter-unrated">🎲 未評価で絞って再生</option>
+      <option value="music-filter-1">🎲 ★1で絞って再生</option>
+      <option value="music-filter-2">🎲 ★2で絞って再生</option>
+      <option value="music-filter-3">🎲 ★3で絞って再生</option>
+      <option value="music-filter-4">🎲 ★4で絞って再生</option>
+      <option value="music-filter-5">🎲 ★5で絞って再生</option>
+      <option value="music-filter-4+">🎲 ★4以上で絞って再生</option>
+    </optgroup>
     <optgroup label="使用上限">
       <option value="limit-handoff">⚠️ 上限で止まった → もう一方へ引き継ぎ</option>
       <option value="agy-rotate">🔄 AGY アカウント切替 (次のGoogle垢へ)</option>
+      <option value="nim-pool">🧮 NIMキーの残数を見る (Hermes / NVIDIA)</option>
     </optgroup>
     <optgroup label="全セッションの巡回">
       <option value="patrol-now">まとめて進める — 優先順に再開</option>
@@ -38,6 +77,7 @@
       <option value="q-queue">📚 残りをキューへ — 合意済みの未完了作業を登録</option>
     </optgroup>
     <optgroup label="選択中のエージェントへ送る">
+	  <option value="handoff-from-right">⬅️ 右隣からこのペインへ引き継ぐ</option>
       <option value="q-continue">⏩ 続けて</option>
       <option value="q-diff">🔍 diff を見せて要約</option>
       <option value="q-test">🧪 テストを実行</option>
@@ -55,6 +95,8 @@
     </optgroup>
     <optgroup label="検索・移動">
       <option value="navigator">🔎 Navigator(タブ・セッションを探す)</option>
+      <option value="organize-tabs">🗂️ 全スペースのタブを仕分け</option>
+      <option value="reopen-tab">↩️ 閉じたタブを開き直す (Cmd+Shift+T)</option>
     </optgroup>
     <optgroup label="ペイン操作(Ctrl+B 不要)">
       <option value="split-right">◧ 右に分割</option>

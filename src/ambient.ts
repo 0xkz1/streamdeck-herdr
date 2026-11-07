@@ -11,7 +11,7 @@ import { isSleeping } from "./power";
 const CFG = `${process.env.HOME}/.config/herdr-hue`;
 const IP = CONFIG.hueIp;
 
-type Cfg = { enabled: boolean; lights: string[]; referenceLights: string[]; working: boolean; doneSeconds: number; pulse: boolean; neutral: Record<string, unknown>; heatSound: boolean };
+type Cfg = { enabled: boolean; lights: string[]; referenceLights: string[]; working: boolean; doneSeconds: number; limitSeconds?: number; pulse: boolean; neutral: Record<string, unknown>; heatSound: boolean };
 type Mode = "idle" | "blocked" | "done" | "working" | "heat1" | "heat2" | "limit";
 
 const COLOR: Record<Exclude<Mode, "idle">, Record<string, unknown>> = {
@@ -76,7 +76,7 @@ export function setGpuTemp(t?: number) {
 	if (heat > prev || (heat === 2 && Date.now() - lastAlarm > 30_000)) { lastAlarm = Date.now(); alarm(heat); }
 }
 
-let cfg: Cfg = { enabled: true, lights: ["6"], referenceLights: [], working: true, doneSeconds: 15, pulse: true, neutral: { on: true, bri: 130, ct: 340 }, heatSound: true };
+let cfg: Cfg = { enabled: true, lights: ["6"], referenceLights: [], working: true, doneSeconds: 15, limitSeconds: 5, pulse: true, neutral: { on: true, bri: 130, ct: 340 }, heatSound: true };
 let cfgAt = 0;
 let mode: Mode = "idle";
 let doneSince = 0;
@@ -287,13 +287,19 @@ export function loadCfg(force = false) {
 }
 
 let limitUntil = 0;
-export const ambientLimitAlert = (seconds = 60) => { limitUntil = Date.now() + seconds * 1000; };
+export const ambientLimitAlert = (seconds = cfg.limitSeconds ?? 5) => { limitUntil = Date.now() + seconds * 1000; };
 export const ambientEnabled = () => cfg.enabled;
 export const ambientMode = () => mode;
 
 export async function ambientToggle() {
 	loadCfg(true);
-	cfg.enabled = !cfg.enabled;
+	await ambientSetEnabled(!cfg.enabled);
+}
+
+export async function ambientSetEnabled(enabled: boolean) {
+	loadCfg(true);
+	if (cfg.enabled === enabled) return;
+	cfg.enabled = enabled;
 	writeFileSync(`${CFG}/ambient.json`, JSON.stringify(cfg, null, 2));
 	if (!cfg.enabled) {
 		stopPulse();
@@ -301,7 +307,7 @@ export async function ambientToggle() {
 		busy = true;
 		try { await restore(); mode = "idle"; }
 		finally { busy = false; }
-	} // mode を戻さないと、再度有効にしたとき同じ色を付け直さない
+	}
 }
 
 // 参照灯が同じシーンなら戻す。直前にユーザーが部屋のシーンを変えた場合は保つ。

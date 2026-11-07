@@ -199,3 +199,16 @@ export const startLimitHandoff = (id: string) => {
 export async function fetchPatrol(): Promise<PatrolInfo> {
     return JSON.parse(await ssh("/usr/bin/python3 ~/atelier/forge/herdr/patrol_trigger.py summary"));
 }
+
+export type DriveInfo = {
+    mode: "normal" | "away" | "paused";
+    remaining_minutes: number;
+    enabled: boolean;
+    running: boolean;
+    last_error: string;
+};
+export const fetchDrive = async (): Promise<DriveInfo> =>
+    JSON.parse(await ssh(`/usr/bin/python3 ${DIR_}/autodrive.py status`));
+export const driveCommand = (method: "away" | "toggle" | "return") =>
+    ssh(`/usr/bin/python3 ${DIR_}/autodrive.py ${method}`);
+export const fetchDriveReport = () => ssh(`/usr/bin/python3 ${DIR_}/autodrive.py report`);

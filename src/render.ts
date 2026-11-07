@@ -98,8 +98,8 @@ function formatRemain(seconds?: number): string {
 	return `-${m}:${sec.toString().padStart(2, "0")}`;
 }
 
-export function renderNowPlaying(opts: { track: string; artist?: string; playing: boolean; loading: boolean; remaining?: number }): string {
-	const { track, artist, playing, loading, remaining } = opts;
+export function renderNowPlaying(opts: { track: string; artist?: string; playing: boolean; loading: boolean; remaining?: number; rating?: number }): string {
+	const { track, artist, playing, loading, remaining, rating } = opts;
 	if (!playing && !loading && !track) {
 		return tile("#221d30", "🎵", "BGM 停止中", "SoundCloud");
 	}
@@ -125,7 +125,7 @@ export function renderNowPlaying(opts: { track: string; artist?: string; playing
 		) +
 		`<rect x="16" y="88" width="112" height="2" fill="${statusColor}" opacity="0.4"/>` +
 		`<text x="72" y="112" font-size="16" font-family="Hiragino Sans,Helvetica,sans-serif" font-weight="800" text-anchor="middle" fill="#ff9944">${esc(clip(artistText, 12))}</text>` +
-		`<text x="72" y="132" font-size="11" font-family="Helvetica,sans-serif" font-weight="600" text-anchor="middle" fill="#888899">押して開く ↗</text>` +
+		`<text x="72" y="132" font-size="11" font-family="Hiragino Sans,Helvetica,sans-serif" font-weight="600" text-anchor="middle" fill="#d6b773">${rating ? `★${rating} 保存済み` : "未評価"} · 開く ↗</text>` +
 		`</svg>`
 	);
 }

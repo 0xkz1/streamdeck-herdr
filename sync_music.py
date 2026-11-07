@@ -21,6 +21,7 @@ from pathlib import Path
 DEFAULT_URL = os.environ.get("SOUNDCLOUD_LIKES_URL", "https://soundcloud.com/your-account/likes")
 CONFIG_FILE = Path(os.environ.get("HERDR_MUSIC_CONFIG", Path.home() / ".config" / "herdr-music.json"))
 CATALOG_FILE = Path(os.environ.get("HERDR_MUSIC_CATALOG", Path.home() / ".config" / "herdr-music-catalog.json"))
+USER_TAGS_FILE = Path(os.environ.get("HERDR_MUSIC_USER_TAGS", Path.home() / ".config" / "herdr-music-user-tags.json"))
 
 DEFAULT_CATEGORIES = {
     "all": {"name": "全曲", "emoji": "🎲", "color": "#f26f23", "description": "いいねした全曲"},
@@ -31,7 +32,21 @@ DEFAULT_CATEGORIES = {
     "focus": {"name": "作業没入", "emoji": "🎧", "color": "#ab47bc", "description": "長尺アンビエント・集中用BGM"},
     "acid-pauli": {"name": "Acid Pauli", "emoji": "🌀", "color": "#8e24aa", "description": "Acid Pauli DJ Sets & Mixes"},
     "soundtrack": {"name": "映画音楽", "emoji": "🎬", "color": "#e53935", "description": "映画・ドラマ・ゲームのサントラ・劇伴"},
+    "piano": {"name": "ピアノ", "emoji": "🎹", "color": "#4a90e2", "description": "ピアノ主体の楽曲・ソロ・協奏曲"},
+    "guitar-strings": {"name": "ギター・弦楽器", "emoji": "🎸", "color": "#e67e22", "description": "ギター、バイオリン、チェロ等の弦楽器"},
+    "guitar": {"name": "ギター", "emoji": "🎸", "color": "#d97706", "description": "アコースティック・クラシックギター等"},
+    "strings": {"name": "弦楽器", "emoji": "🎻", "color": "#8b5cf6", "description": "バイオリン、チェロ、ハープ等の弦楽"},
+    "oriental": {"name": "オリエンタル", "emoji": "🕌", "color": "#0d9488", "description": "東洋・中東・アラビック・民族音楽・Orient"},
 }
+
+
+def load_user_tags() -> dict:
+    if USER_TAGS_FILE.exists():
+        try:
+            return json.loads(USER_TAGS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
 
 
 def load_config() -> dict:
@@ -161,6 +176,77 @@ def classify_track(raw_item: dict) -> tuple[list[str], list[str]]:
         categories.append("soundtrack")
         tags.append("soundtrack")
 
+    # 5. 楽器判定 (ピアノ / ギター / 弦楽器)
+    re_piano = re.compile(r"\b(piano[s]?|pianist|keyboard|klavier)\b", re.IGNORECASE)
+
+    # ギター判定: クラシックギター・アコギ・ボサノバギター等を採用、エレキギター・メタル・ロック系を除外
+    re_guitar_core = re.compile(r"\b(guitars?|guitarist|guitares?|guitarras?|classical guitar|acoustic guitar|fingerstyle|flamenco|bonfa)\b", re.IGNORECASE)
+    re_acoustic_genre = re.compile(r"\bacoustic\b", re.IGNORECASE)
+    re_bossa = re.compile(r"\b(bossanova|bossa nova)\b", re.IGNORECASE)
+    re_electric = re.compile(r"\b(electric|electric guitar|metal|hard rock|shred|distortion|overdrive|heroes of might and magic)\b", re.IGNORECASE)
+
+    # 弦楽器判定: バイオリン、チェロ、ハープ等 (ギターとは区別)
+    re_strings = re.compile(r"\b(strings?|violin[s]?|viola|cello|cellist|harp|fiddle|contrabass)\b", re.IGNORECASE)
+
+    is_piano = bool(re_piano.search(combined))
+    
+    is_electric = bool(re_electric.search(combined))
+    is_guitar_match = (
+        bool(re_guitar_core.search(combined)) or
+        bool(re_acoustic_genre.search(genre)) or
+        (bool(re_bossa.search(genre)) and duration_sec < 600 and "civic club" not in combined and "dj mix" not in combined)
+    )
+    is_guitar = is_guitar_match and not is_electric
+    
+    is_strings = bool(re_strings.search(combined))
+
+    if is_piano:
+        categories.append("piano")
+        tags.append("piano")
+
+    if is_guitar:
+        categories.append("guitar")
+        tags.append("guitar")
+
+    if is_strings:
+        categories.append("strings")
+        tags.append("strings")
+
+    if is_guitar or is_strings:
+        categories.append("guitar-strings")
+        tags.append("guitar-strings")
+
+    # 6. Oriental (東洋・中東・アラビック・民族音楽・Orient)
+    oriental_words = [
+        r"oriental", r"orient", r"eastern", r"arabic", r"arabian", r"middle[\s-]east(ern)?",
+        r"turkish", r"ottoman", r"persian", r"iranian", r"egyptian",
+        r"taqaseem", r"sufi", r"dervish", r"oud", r"ney", r"nay", r"kanun", r"qanun", r"duduk", r"sitar",
+        r"shakuhachi", r"shamisen", r"koto", r"erhu", r"guzheng", r"pipa",
+        r"ainu", r"silk[\s-]road", r"bedouin", r"nomad(ic)?", r"morocco", r"sultan", r"fikriye",
+        r"tamavra", r"spanoudakis", r"fahir"
+    ]
+    oriental_artists = [
+        "khaled al kammar", "fahir atakoğlu", "fahir atakoglu", "wesam joubran",
+        "peyman khazeni", "soheil peyghambari", "armand amar", "yasmine elbakly",
+        "adel hakki", "stamatis spanoudakis", "tigran", "azaiez yacine", "oki dub ainu band",
+        "mina el solimany", "karen homayounfar", "karim shæri", "karim shaeri",
+        "discovery sound"
+    ]
+    re_oriental_words = re.compile(r"\b(" + "|".join(oriental_words) + r")\b", re.IGNORECASE)
+    re_arabic_script = re.compile(r"[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]")
+
+    is_oriental_word = bool(re_oriental_words.search(combined))
+    raw_artist = (raw_item.get("user", {}).get("username") or raw_item.get("artist") or "").lower()
+    is_oriental_artist = any(a in raw_artist for a in oriental_artists)
+    is_arabic_title = bool(re_arabic_script.search(f"{title} {genre}"))
+
+    # 特定の誤判定を除外 (Interstellar, Duneサントラ等)
+    is_excluded = ("interstellar" in combined and "zimmer" in combined) or ("soundtrack" in title and "dune" in title)
+
+    if (is_oriental_word or is_oriental_artist or is_arabic_title) and not is_excluded:
+        categories.append("oriental")
+        tags.append("oriental")
+
     # 重複排除
     return list(dict.fromkeys(categories)), list(dict.fromkeys(tags))
 
@@ -175,6 +261,7 @@ def sync(force=False) -> dict:
     print(f"認証取得完了: user_id={user_id}, client_id={client_id[:6]}...")
 
     existing_tracks = {t["url"]: t for t in catalog.get("tracks", [])}
+    user_tags = load_user_tags()
     new_tracks_count = 0
     page_count = 0
 
@@ -224,6 +311,17 @@ def sync(force=False) -> dict:
                 existing = existing_tracks[url]
                 cats = existing.get("categories", cats)
                 tags = existing.get("tags", tags)
+
+            # ユーザーカスタムタグがあればマージ
+            manual = user_tags.get(url, [])
+            for m in manual:
+                if m not in cats:
+                    cats.append(m)
+                if m not in tags:
+                    tags.append(m)
+            if "guitar" in cats or "strings" in cats:
+                if "guitar-strings" not in cats:
+                    cats.append("guitar-strings")
 
             entry = {
                 "url": url,
@@ -305,13 +403,31 @@ def print_list(catalog: dict, category: str):
 
 def reclassify(catalog: dict):
     catalog["categories"] = DEFAULT_CATEGORIES
+    user_tags = load_user_tags()
     count = 0
     for t in catalog.get("tracks", []):
-        raw = {"duration": (t.get("duration", 0) * 1000), "title": t.get("title", ""), "genre": t.get("genre", ""), "tag_list": " ".join(t.get("tags", []))}
+        url = t.get("url", "")
+        orig_tags = [tg for tg in t.get("tags", []) if tg not in DEFAULT_CATEGORIES]
+        raw = {
+            "duration": (t.get("duration", 0) * 1000),
+            "title": t.get("title", ""),
+            "artist": t.get("artist", ""),
+            "genre": t.get("genre", ""),
+            "tag_list": " ".join(orig_tags)
+        }
         cats, tags = classify_track(raw)
-        # 手動で追加されたタグ・カテゴリも保持しつつマージ
-        t["categories"] = list(dict.fromkeys(t.get("categories", []) + cats))
-        t["tags"] = list(dict.fromkeys(t.get("tags", []) + tags))
+        # ユーザー手動付与タグをマージ
+        manual = user_tags.get(url, [])
+        for m in manual:
+            if m not in cats:
+                cats.append(m)
+            if m not in tags:
+                tags.append(m)
+        if "guitar" in cats or "strings" in cats:
+            if "guitar-strings" not in cats:
+                cats.append("guitar-strings")
+        t["categories"] = cats
+        t["tags"] = tags
         count += 1
     save_catalog(catalog)
     print(f"{count} 曲のカテゴリを再判定・更新しました。")
