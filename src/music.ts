@@ -20,6 +20,7 @@ export type State = {
 	url?: string;
 	category?: string;
 	rating?: number;
+	subRating?: string;
 	ratingFilter?: string;
 	ratedCount?: number;
 	duration?: number;
@@ -150,14 +151,20 @@ export async function musicOpen() {
 	} catch { /* ignore */ }
 }
 
-export async function musicRate(value: number) {
+export async function musicRate(value: number, sub?: string, cycleFive = false) {
 	if (!Number.isInteger(value) || value < 0 || value > 5) throw new Error("評価は1〜5です");
 	if (busy) throw new Error("曲を切り替え中です。もう一度押してください");
 	busy = true;
 	try {
 		await call("/status");
 		if (!state.url || !state.track || state.loading) throw new Error("評価する曲がありません");
-		await call(`/rate?value=${value}&url=${encodeURIComponent(state.url)}`, "POST");
+		if (cycleFive && value === 5 && state.rating === 5) {
+			const order = ["S", "A", "B", "C", "D"];
+			sub = order[(order.indexOf(state.subRating || "") + 1) % order.length];
+		}
+		let route = `/rate?value=${value}&url=${encodeURIComponent(state.url)}`;
+		if (sub !== undefined) route += `&sub=${encodeURIComponent(sub)}`;
+		await call(route, "POST");
 	} finally { busy = false; }
 }
 
@@ -266,7 +273,7 @@ export async function musicClearTags() {
 		if (!track) throw new Error("カタログ内に曲が見つかりません");
 
 		const userTags = loadUserTagsData();
-		const removable = ["piano", "guitar", "strings", "guitar-strings", "oriental", "chill"];
+		const removable = ["piano", "guitar", "strings", "guitar-strings", "oriental", "latin", "witcher", "chill"];
 		track.categories = (track.categories || []).filter(c => !removable.includes(c));
 		if (track.tags) track.tags = track.tags.filter(t => !removable.includes(t));
 		if (userTags[url]) {

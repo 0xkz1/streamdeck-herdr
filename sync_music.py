@@ -37,6 +37,8 @@ DEFAULT_CATEGORIES = {
     "guitar": {"name": "ギター", "emoji": "🎸", "color": "#d97706", "description": "アコースティック・クラシックギター等"},
     "strings": {"name": "弦楽器", "emoji": "🎻", "color": "#8b5cf6", "description": "バイオリン、チェロ、ハープ等の弦楽"},
     "oriental": {"name": "オリエンタル", "emoji": "🕌", "color": "#0d9488", "description": "東洋・中東・アラビック・民族音楽・Orient"},
+    "latin": {"name": "ラテン", "emoji": "💃", "color": "#e11d48", "description": "ボサノバ・タンゴ・サンバ・ラテン音楽"},
+    "witcher": {"name": "Witcher", "emoji": "🐺", "color": "#78716c", "description": "The Witcher・Gwent・ファンタジーサントラ"},
 }
 
 
@@ -246,6 +248,29 @@ def classify_track(raw_item: dict) -> tuple[list[str], list[str]]:
     if (is_oriental_word or is_oriental_artist or is_arabic_title) and not is_excluded:
         categories.append("oriental")
         tags.append("oriental")
+
+    # 7. Latin (ボサノバ・タンゴ・サンバ・フラメンコ・ラテン・クンビア)
+    latin_words = [
+        r"latin", r"latino", r"latina", r"bossa", r"bossanova", r"bossa[\s-]nova",
+        r"samba", r"tango", r"flamenco", r"cumbia", r"salsa", r"mambo",
+        r"choro", r"buena[\s-]vista", r"brazilian?", r"brazil", r"cuban?"
+    ]
+    re_latin = re.compile(r"\b(" + "|".join(latin_words) + r")\b", re.IGNORECASE)
+    if bool(re_latin.search(combined)):
+        categories.append("latin")
+        tags.append("latin")
+
+    # 8. Witcher (The Witcher・Gwent・サントラ・作曲者)
+    witcher_words = [
+        r"witcher", r"geralt", r"gwent", r"velen", r"skellige", r"novigrad",
+        r"kaer[\s-]morhen", r"wild[\s-]hunt", r"hearts[\s-]of[\s-]stone",
+        r"blood[\s-]and[\s-]wine", r"toussaint", r"thronebreaker",
+        r"marcin[\s-]przybylowicz", r"mikolai[\s-]stroinski", r"percival"
+    ]
+    re_witcher = re.compile(r"\b(" + "|".join(witcher_words) + r")\b", re.IGNORECASE)
+    if bool(re_witcher.search(combined)):
+        categories.append("witcher")
+        tags.append("witcher")
 
     # 重複排除
     return list(dict.fromkeys(categories)), list(dict.fromkeys(tags))

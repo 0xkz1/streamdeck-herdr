@@ -10,7 +10,7 @@ function fixture(initialPlaying = false, config) {
 	let now = 1_000_000, sleeping = false, muted = false;
 	const routes = [], files = new Map(), launches = [];
 	if (config) files.set("/test/.config/herdr-music.json", JSON.stringify({ enabled: true, ...config }));
-	let playing = initialPlaying, loading = false, fail = false, gate, rating = 0, category = "all", ratingFilter = "all", responseError = "";
+	let playing = initialPlaying, loading = false, fail = false, gate, rating = 0, subRating = "", category = "all", ratingFilter = "all", responseError = "";
 	let trackUrl = "https://soundcloud.com/test/liked-track";
 	const module = { exports: {} };
 	vm.runInNewContext(source, {
@@ -32,16 +32,16 @@ function fixture(initialPlaying = false, config) {
 			if (route === "/rate") {
 				assert.equal(options.method, "POST");
 				assert.equal(u.searchParams.get("url"), trackUrl);
-				if (!responseError) rating = Number(u.searchParams.get("value"));
+				if (!responseError) { rating = Number(u.searchParams.get("value")); if (u.searchParams.has("sub")) subRating = u.searchParams.get("sub"); }
 			}
-			return { json: async () => ({ playing, loading, category, ratingFilter, rating, url: trackUrl, track: playing ? "liked track" : "", error: responseError }) };
+			return { json: async () => ({ playing, loading, category, ratingFilter, rating, subRating, url: trackUrl, track: playing ? "liked track" : "", error: responseError }) };
 		},
 	});
 	return { ...module.exports, routes, files, launches,
 		advance: (ms) => { now += ms; }, sleep: (s) => { sleeping = s; }, mute: (s) => { muted = s; }, fail: (s) => { fail = s; },
 		gate: (p) => { gate = p; },
 		setTime: (time) => { now = time; },
-		responseError: (s) => { responseError = s; }, trackUrl: (s) => { trackUrl = s; },
+		responseError: (s) => { responseError = s; }, trackUrl: (s) => { trackUrl = s; }, playerRating: (r, sub = "") => { rating = r; subRating = sub; },
 	};
 }
 
@@ -51,6 +51,21 @@ test("polling never starts playback automatically", async () => {
  assert.ok(!f.routes.includes("/play"));
  assert.equal(f.launches.length, 0);
  assert.match(JSON.parse(f.files.get("/test/.config/herdr-music.json")).url, /\/likes$/);
+});
+
+test("five-star cycling uses the freshly fetched track state", async () => {
+	const f = fixture(); await f.musicToggle();
+	// Cached state belongs to the previous track, which had no stars.
+	f.trackUrl("https://soundcloud.com/test/next-track"); f.playerRating(5, "");
+	for (const expected of ["S", "A", "B", "C", "D", "S"]) {
+		await f.musicRate(5, undefined, true);
+		assert.equal(f.musicState().subRating, expected);
+		assert.match(f.routes.at(-1), new RegExp(`&sub=${expected}$`));
+	}
+	// A new, unrated track must get five stars without inheriting a sub-rating.
+	f.trackUrl("https://soundcloud.com/test/unrated-track"); f.playerRating(0);
+	await f.musicRate(5, undefined, true);
+	assert.doesNotMatch(f.routes.at(-1), /&sub=/);
 });
 
 const hour = (h, minute = 0, second = 0) => new Date(2026, 9, 18, h, minute, second).getTime();
@@ -316,6 +331,13 @@ test("musicToggleTag adds and removes tags and reloads catalog", async () => {
 	const userTags1 = JSON.parse(f.files.get("/test/.config/herdr-music-user-tags.json"));
 	assert.deepEqual(userTags1["https://soundcloud.com/test/liked-track"], ["piano"]);
 	assert.deepEqual(JSON.parse(JSON.stringify(f.currentTrackTags())), ["all", "piano"]);
+
+	// 1b. Add latin and witcher tags
+	await f.musicToggleTag("latin");
+	await f.musicToggleTag("witcher");
+	const updated1b = JSON.parse(f.files.get("/test/.config/herdr-music-catalog.json"));
+	assert.ok(updated1b.tracks[0].categories.includes("latin"));
+	assert.ok(updated1b.tracks[0].categories.includes("witcher"));
 
 	// 2. Add guitar tag (should also add guitar-strings)
 	await f.musicToggleTag("guitar");

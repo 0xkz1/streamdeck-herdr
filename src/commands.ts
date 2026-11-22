@@ -373,10 +373,14 @@ export const COMMANDS: Record<string, Cmd> = {
 	"music-guitar": musicCmd("guitar", "ギター", "🎸", "#d97706"),
 	"music-violin": musicCmd("strings", "弦楽器", "🎻", "#8b5cf6"),
 	"music-oriental": musicCmd("oriental", "オリエント", "🕌", "#0d9488"),
+	"music-latin": musicCmd("latin", "ラテン", "💃", "#e11d48"),
+	"music-witcher": musicCmd("witcher", "Witcher", "🐺", "#78716c"),
 	"music-tag-piano": musicTagCmd("piano", "ピアノ", "🎹", "#4a90e2"),
 	"music-tag-guitar": musicTagCmd("guitar", "ギター", "🎸", "#d97706"),
 	"music-tag-strings": musicTagCmd("strings", "弦楽器", "🎻", "#8b5cf6"),
 	"music-tag-oriental": musicTagCmd("oriental", "オリエント", "🕌", "#0d9488"),
+	"music-tag-latin": musicTagCmd("latin", "ラテン", "💃", "#e11d48"),
+	"music-tag-witcher": musicTagCmd("witcher", "Witcher", "🐺", "#78716c"),
 	"music-tag-chill": musicTagCmd("chill", "チル", "☕", "#66bb6a"),
 	"music-tag-clear": {
 		view: (_c, busy) => ({
